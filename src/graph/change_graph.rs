@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
-use crate::jj::types::{Bookmark, BookmarkSegment, BranchStack, LogEntry};
 use crate::jj::Jj;
+use crate::jj::types::{Bookmark, BookmarkSegment, BranchStack, LogEntry};
 
 use super::traversal;
 
@@ -60,8 +60,7 @@ pub fn build_change_graph(jj: &dyn Jj) -> Result<ChangeGraph> {
                     .map(|b| b.change_id.clone())
                     .unwrap_or_else(|| first_change.change_id.clone());
 
-                change_id_to_segment
-                    .insert(segment_change_id.clone(), segment.changes.clone());
+                change_id_to_segment.insert(segment_change_id.clone(), segment.changes.clone());
 
                 if !segment.merge_source_names.is_empty() {
                     merge_source_map.insert(
@@ -107,8 +106,7 @@ pub fn build_change_graph(jj: &dyn Jj) -> Result<ChangeGraph> {
             bookmarks
                 .iter()
                 .filter(|b| {
-                    !adjacency_list.contains_key(&b.change_id)
-                        && !parents.contains(&b.change_id)
+                    !adjacency_list.contains_key(&b.change_id) && !parents.contains(&b.change_id)
                 })
                 .map(|b| b.change_id.clone()),
         )
@@ -196,8 +194,14 @@ fn build_stacks(
             .collect();
 
         if !segments.is_empty() {
-            let base_branch = path.first().and_then(|root| foreign_bases.get(root)).cloned();
-            stacks.push(BranchStack { segments, base_branch });
+            let base_branch = path
+                .first()
+                .and_then(|root| foreign_bases.get(root))
+                .cloned();
+            stacks.push(BranchStack {
+                segments,
+                base_branch,
+            });
         }
     }
 
@@ -207,8 +211,8 @@ fn build_stacks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jj::types::GitRemote;
     use crate::jj::Jj;
+    use crate::jj::types::GitRemote;
 
     /// Stub Jj that returns canned data.
     struct StubJj {
@@ -242,12 +246,18 @@ mod tests {
         fn get_working_copy_commit_id(&self) -> Result<String> {
             Ok("wc_commit".to_string())
         }
-        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> { unimplemented!() }
-        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> { unimplemented!() }
+        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> {
+            unimplemented!()
+        }
+        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> {
+            unimplemented!()
+        }
         fn resolve_change_id(&self, _change_id: &str) -> Result<Vec<String>> {
             Ok(vec!["dummy_commit_id".to_string()])
         }
-        fn is_conflicted(&self, _revset: &str) -> Result<bool> { Ok(false) }
+        fn is_conflicted(&self, _revset: &str) -> Result<bool> {
+            Ok(false)
+        }
     }
 
     fn make_log_entry(
@@ -419,7 +429,10 @@ mod tests {
         remote_bookmarks: Vec<&str>,
     ) -> LogEntry {
         let mut e = make_log_entry(commit_id, change_id, parents, bookmarks);
-        e.remote_bookmarks = remote_bookmarks.into_iter().map(|s| s.to_string()).collect();
+        e.remote_bookmarks = remote_bookmarks
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         e
     }
 
@@ -433,8 +446,11 @@ mod tests {
                 vec![
                     make_log_entry("commit_a", "change_a", vec!["coworker_c"], vec!["feature"]),
                     make_log_entry_with_remote_bookmarks(
-                        "coworker_c", "coworker_ch", vec!["trunk"],
-                        vec![], vec!["coworker-feat@origin"],
+                        "coworker_c",
+                        "coworker_ch",
+                        vec!["trunk"],
+                        vec![],
+                        vec!["coworker-feat@origin"],
                     ),
                 ],
             )]),
@@ -458,7 +474,10 @@ mod tests {
             log_entries: HashMap::from([(
                 "commit_a".to_string(),
                 vec![make_log_entry(
-                    "commit_a", "change_a", vec!["trunk"], vec!["feature"],
+                    "commit_a",
+                    "change_a",
+                    vec!["trunk"],
+                    vec!["feature"],
                 )],
             )]),
         };
@@ -483,8 +502,11 @@ mod tests {
                     vec![
                         make_log_entry("commit_a", "change_a", vec!["coworker_c"], vec!["auth"]),
                         make_log_entry_with_remote_bookmarks(
-                            "coworker_c", "coworker_ch", vec!["trunk"],
-                            vec![], vec!["coworker-feat@origin"],
+                            "coworker_c",
+                            "coworker_ch",
+                            vec!["trunk"],
+                            vec![],
+                            vec!["coworker-feat@origin"],
                         ),
                     ],
                 ),
@@ -494,8 +516,11 @@ mod tests {
                         make_log_entry("commit_b", "change_b", vec!["commit_a"], vec!["profile"]),
                         make_log_entry("commit_a", "change_a", vec!["coworker_c"], vec!["auth"]),
                         make_log_entry_with_remote_bookmarks(
-                            "coworker_c", "coworker_ch", vec!["trunk"],
-                            vec![], vec!["coworker-feat@origin"],
+                            "coworker_c",
+                            "coworker_ch",
+                            vec!["trunk"],
+                            vec![],
+                            vec!["coworker-feat@origin"],
                         ),
                     ],
                 ),
@@ -527,16 +552,31 @@ mod tests {
             log_entries: HashMap::from([
                 (
                     "commit_b".to_string(),
-                    vec![make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"])],
+                    vec![make_log_entry(
+                        "commit_b",
+                        "change_b",
+                        vec!["trunk"],
+                        vec!["B"],
+                    )],
                 ),
                 (
                     "commit_c".to_string(),
-                    vec![make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"])],
+                    vec![make_log_entry(
+                        "commit_c",
+                        "change_c",
+                        vec!["trunk"],
+                        vec!["C"],
+                    )],
                 ),
                 (
                     "commit_d".to_string(),
                     vec![
-                        make_log_entry("commit_d", "change_d", vec!["commit_b", "commit_c"], vec!["D"]),
+                        make_log_entry(
+                            "commit_d",
+                            "change_d",
+                            vec!["commit_b", "commit_c"],
+                            vec!["D"],
+                        ),
                         make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"]),
                         make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"]),
                     ],
@@ -549,7 +589,11 @@ mod tests {
         let all_stack_names: HashSet<String> = graph
             .stacks
             .iter()
-            .flat_map(|s| s.segments.iter().flat_map(|seg| seg.bookmarks.iter().map(|b| b.name.clone())))
+            .flat_map(|s| {
+                s.segments
+                    .iter()
+                    .flat_map(|seg| seg.bookmarks.iter().map(|b| b.name.clone()))
+            })
             .collect();
         assert!(all_stack_names.contains("B"));
         assert!(all_stack_names.contains("C"));
@@ -569,27 +613,44 @@ mod tests {
                 (
                     "commit_d".to_string(),
                     vec![
-                        make_log_entry("commit_d", "change_d", vec!["commit_b", "commit_c"], vec!["D"]),
+                        make_log_entry(
+                            "commit_d",
+                            "change_d",
+                            vec!["commit_b", "commit_c"],
+                            vec!["D"],
+                        ),
                         make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"]),
                         make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"]),
                     ],
                 ),
                 (
                     "commit_b".to_string(),
-                    vec![make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"])],
+                    vec![make_log_entry(
+                        "commit_b",
+                        "change_b",
+                        vec!["trunk"],
+                        vec!["B"],
+                    )],
                 ),
                 (
                     "commit_c".to_string(),
-                    vec![make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"])],
+                    vec![make_log_entry(
+                        "commit_c",
+                        "change_c",
+                        vec!["trunk"],
+                        vec!["C"],
+                    )],
                 ),
             ]),
         };
 
         let graph = build_change_graph(&jj).unwrap();
         // D+B in one stack, C in another
-        let c_stack = graph.stacks.iter().find(|s|
-            s.segments.iter().any(|seg| seg.bookmarks.iter().any(|b| b.name == "C"))
-        );
+        let c_stack = graph.stacks.iter().find(|s| {
+            s.segments
+                .iter()
+                .any(|seg| seg.bookmarks.iter().any(|b| b.name == "C"))
+        });
         assert!(c_stack.is_some(), "C should have its own stack");
     }
 
@@ -606,24 +667,41 @@ mod tests {
                 (
                     "commit_d".to_string(),
                     vec![
-                        make_log_entry("commit_d", "change_d", vec!["commit_b", "commit_c"], vec!["D"]),
+                        make_log_entry(
+                            "commit_d",
+                            "change_d",
+                            vec!["commit_b", "commit_c"],
+                            vec!["D"],
+                        ),
                         make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"]),
                         make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"]),
                     ],
                 ),
                 (
                     "commit_b".to_string(),
-                    vec![make_log_entry("commit_b", "change_b", vec!["trunk"], vec!["B"])],
+                    vec![make_log_entry(
+                        "commit_b",
+                        "change_b",
+                        vec!["trunk"],
+                        vec!["B"],
+                    )],
                 ),
                 (
                     "commit_c".to_string(),
-                    vec![make_log_entry("commit_c", "change_c", vec!["trunk"], vec!["C"])],
+                    vec![make_log_entry(
+                        "commit_c",
+                        "change_c",
+                        vec!["trunk"],
+                        vec!["C"],
+                    )],
                 ),
             ]),
         };
 
         let graph = build_change_graph(&jj).unwrap();
-        let d_segment = graph.stacks.iter()
+        let d_segment = graph
+            .stacks
+            .iter()
             .flat_map(|s| &s.segments)
             .find(|seg| seg.bookmarks.iter().any(|b| b.name == "D"))
             .expect("D should be in a stack");

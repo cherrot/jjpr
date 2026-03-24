@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use super::types::RepoInfo;
 use super::ForgeKind;
+use super::types::RepoInfo;
 use crate::jj::GitRemote;
 
 /// Parse a GitHub remote URL into owner/repo.
@@ -432,21 +432,27 @@ mod tests {
     // parse_url_as tests — used when config explicitly sets forge type
     #[test]
     fn test_parse_url_as_github_from_any_host() {
-        let info = parse_url_as("https://forgejo.example.com/me/repo.git", ForgeKind::GitHub).unwrap();
+        let info =
+            parse_url_as("https://forgejo.example.com/me/repo.git", ForgeKind::GitHub).unwrap();
         assert_eq!(info.owner, "me");
         assert_eq!(info.repo, "repo");
     }
 
     #[test]
     fn test_parse_url_as_forgejo_from_any_host() {
-        let info = parse_url_as("git@git.mycompany.com:team/project.git", ForgeKind::Forgejo).unwrap();
+        let info =
+            parse_url_as("git@git.mycompany.com:team/project.git", ForgeKind::Forgejo).unwrap();
         assert_eq!(info.owner, "team");
         assert_eq!(info.repo, "project");
     }
 
     #[test]
     fn test_parse_url_as_gitlab_uses_nested_groups() {
-        let info = parse_url_as("https://git.mycompany.com/group/sub/repo.git", ForgeKind::GitLab).unwrap();
+        let info = parse_url_as(
+            "https://git.mycompany.com/group/sub/repo.git",
+            ForgeKind::GitLab,
+        )
+        .unwrap();
         assert_eq!(info.owner, "group/sub");
         assert_eq!(info.repo, "repo");
     }

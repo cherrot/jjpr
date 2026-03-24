@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::types::IssueComment;
 
 const SENTINEL: &str = "<!-- jjpr:stack-info -->";
+const DESCRIPTION_START: &str = "<!-- jjpr:stack-navigation -->";
+const DESCRIPTION_END: &str = "<!-- /jjpr:stack-navigation -->";
 const FOOTER: &str = "*Created with [jjpr](https://github.com/michaeldhopkins/jjpr)*";
 // Also detect jj-stack comments for migration
 const LEGACY_FOOTER: &str = "*Created with [jj-stack]";
@@ -107,6 +109,58 @@ pub fn parse_comment_data(body: &str) -> Option<StackCommentData> {
     None
 }
 
+/// Extract the stack navigation section from a PR description.
+pub fn extract_stack_navigation(pr_body: &str) -> Option<&str> {
+    let start_idx = pr_body.find(DESCRIPTION_START)?;
+    let content_start = start_idx + DESCRIPTION_START.len();
+    let end_idx = pr_body[content_start..].find(DESCRIPTION_END)? + content_start;
+    Some(pr_body[content_start..end_idx].trim())
+}
+
+/// Insert or replace the stack navigation section in a PR description.
+pub fn upsert_stack_navigation(pr_body: &str, stack_body: &str) -> String {
+    let section = format!("{DESCRIPTION_START}\n{stack_body}\n{DESCRIPTION_END}");
+    let Some(start_idx) = pr_body.find(DESCRIPTION_START) else {
+        if pr_body.trim().is_empty() {
+            return section;
+        }
+        return format!("{}\n\n{section}", pr_body.trim_end());
+    };
+    let Some(end_tag_start) = pr_body[start_idx..].find(DESCRIPTION_END) else {
+        return pr_body.to_string();
+    };
+    let end_idx = start_idx + end_tag_start + DESCRIPTION_END.len();
+    let before = pr_body[..start_idx].trim_end();
+    let after = pr_body[end_idx..].trim_start();
+
+    match (before.is_empty(), after.is_empty()) {
+        (true, true) => section,
+        (false, true) => format!("{before}\n\n{section}"),
+        (true, false) => format!("{section}\n\n{after}"),
+        (false, false) => format!("{before}\n\n{section}\n\n{after}"),
+    }
+}
+
+/// Remove the stack navigation section from a PR description if present.
+pub fn remove_stack_navigation(pr_body: &str) -> String {
+    let Some(start_idx) = pr_body.find(DESCRIPTION_START) else {
+        return pr_body.to_string();
+    };
+    let Some(end_tag_start) = pr_body[start_idx..].find(DESCRIPTION_END) else {
+        return pr_body.to_string();
+    };
+    let end_idx = start_idx + end_tag_start + DESCRIPTION_END.len();
+    let before = pr_body[..start_idx].trim_end();
+    let after = pr_body[end_idx..].trim_start();
+
+    match (before.is_empty(), after.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => before.to_string(),
+        (true, false) => after.to_string(),
+        (false, false) => format!("{before}\n\n{after}"),
+    }
+}
+
 /// Find an existing jjpr (or legacy jj-stack) comment in a list of comments.
 pub fn find_stack_comment(comments: &[IssueComment]) -> Option<&IssueComment> {
     comments.iter().find(|c| {
@@ -200,6 +254,42 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_stack_navigation_from_description() {
+        let body = format!(
+            "Intro\n\n{DESCRIPTION_START}\n{SENTINEL}\nstack info\n{DESCRIPTION_END}\n\nFooter"
+        );
+        assert_eq!(
+            extract_stack_navigation(&body),
+            Some(&format!("{SENTINEL}\nstack info")[..])
+        );
+    }
+
+    #[test]
+    fn test_upsert_stack_navigation_appends_section() {
+        let body = upsert_stack_navigation("Managed body", "Stack info");
+        assert!(body.contains("Managed body"));
+        assert!(body.contains(DESCRIPTION_START));
+        assert!(body.contains("Stack info"));
+        assert!(body.contains(DESCRIPTION_END));
+    }
+
+    #[test]
+    fn test_upsert_stack_navigation_replaces_existing_section() {
+        let body = format!("Before\n\n{DESCRIPTION_START}\nold\n{DESCRIPTION_END}\n\nAfter");
+        let updated = upsert_stack_navigation(&body, "new");
+        assert!(updated.contains("Before"));
+        assert!(updated.contains("After"));
+        assert!(updated.contains("new"));
+        assert!(!updated.contains("\nold\n"));
+    }
+
+    #[test]
+    fn test_remove_stack_navigation_section() {
+        let body = format!("Before\n\n{DESCRIPTION_START}\nold\n{DESCRIPTION_END}\n\nAfter");
+        assert_eq!(remove_stack_navigation(&body), "Before\n\nAfter");
+    }
+
+    #[test]
     fn test_find_stack_comment_by_sentinel() {
         let comments = vec![
             IssueComment {
@@ -290,7 +380,10 @@ mod tests {
         let body = format!("<!--- JJPR_DATA: {encoded} --->");
 
         let parsed = parse_comment_data(&body).expect("should parse old format");
-        assert!(!parsed.stack[0].is_merged, "missing is_merged should default to false");
+        assert!(
+            !parsed.stack[0].is_merged,
+            "missing is_merged should default to false"
+        );
     }
 
     #[test]

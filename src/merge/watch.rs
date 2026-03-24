@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -8,14 +8,14 @@ use anyhow::{Context, Result};
 
 use crate::forge::types::PullRequest;
 use crate::forge::{Forge, ForgeKind};
-use crate::jj::types::NarrowedSegment;
 use crate::jj::Jj;
+use crate::jj::types::NarrowedSegment;
 
 use super::execute::{
-    format_block_reason, merge_with_retry, reconcile_after_merge, BlockedPr, LocalDivergenceWarning,
-    MergeResult, MergedPr, SkippedMergedPr,
+    BlockedPr, LocalDivergenceWarning, MergeResult, MergedPr, SkippedMergedPr, format_block_reason,
+    merge_with_retry, reconcile_after_merge,
 };
-use super::plan::{evaluate_segment, BlockReason, MergePlan, PrMergeStatus};
+use super::plan::{BlockReason, MergePlan, PrMergeStatus, evaluate_segment};
 
 pub(crate) const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5 * 60);
 pub(crate) const MAX_CONSECUTIVE_ERRORS: u32 = 10;
@@ -70,7 +70,10 @@ pub(crate) fn report_status_changes(
 
     // Report resolved reasons
     for old in prev {
-        if !current.iter().any(|c| std::mem::discriminant(c) == std::mem::discriminant(old)) {
+        if !current
+            .iter()
+            .any(|c| std::mem::discriminant(c) == std::mem::discriminant(old))
+        {
             println!("  {bookmark}: {}", format_resolved_reason(old));
             printed = true;
         }
@@ -78,7 +81,10 @@ pub(crate) fn report_status_changes(
 
     // Report new reasons
     for new in current {
-        if !prev.iter().any(|p| std::mem::discriminant(p) == std::mem::discriminant(new)) {
+        if !prev
+            .iter()
+            .any(|p| std::mem::discriminant(p) == std::mem::discriminant(new))
+        {
             println!("  {bookmark}: {}", format_block_reason(new, fk));
             printed = true;
         }
@@ -86,7 +92,11 @@ pub(crate) fn report_status_changes(
 
     // Report approval count changes within InsufficientApprovals
     for new in current {
-        if let BlockReason::InsufficientApprovals { have: new_have, need } = new {
+        if let BlockReason::InsufficientApprovals {
+            have: new_have,
+            need,
+        } = new
+        {
             for old in prev {
                 if let BlockReason::InsufficientApprovals { have: old_have, .. } = old
                     && new_have != old_have
@@ -171,7 +181,9 @@ pub fn execute_merge_plan_watch(
             Err(e) => {
                 consecutive_errors += 1;
                 let now = local_time_hhmm();
-                eprintln!("  [{now}] Poll error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}");
+                eprintln!(
+                    "  [{now}] Poll error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                );
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                     eprintln!("  Too many consecutive errors \u{2014} giving up.");
                     break;
@@ -196,11 +208,15 @@ pub fn execute_merge_plan_watch(
                 pr_number,
             } => {
                 if prev_reasons.is_some() {
-                    println!("  {bookmark_name}: Merged externally ({}) \u{2014} moving on",
-                        fk.format_ref(pr_number));
+                    println!(
+                        "  {bookmark_name}: Merged externally ({}) \u{2014} moving on",
+                        fk.format_ref(pr_number)
+                    );
                 } else {
-                    println!("  '{bookmark_name}' ({}) already merged",
-                        fk.format_ref(pr_number));
+                    println!(
+                        "  '{bookmark_name}' ({}) already merged",
+                        fk.format_ref(pr_number)
+                    );
                 }
                 skipped_merged.push(SkippedMergedPr {
                     bookmark_name,
@@ -222,15 +238,13 @@ pub fn execute_merge_plan_watch(
                 );
                 println!("    {}", pr.html_url);
 
-                merge_with_retry(
-                    forge, owner, repo, pr.number, plan.options.merge_method, fk,
-                )
-                .with_context(|| {
-                    format!(
-                        "failed to merge {} for '{bookmark_name}'",
-                        fk.format_ref(pr.number)
-                    )
-                })?;
+                merge_with_retry(forge, owner, repo, pr.number, plan.options.merge_method, fk)
+                    .with_context(|| {
+                        format!(
+                            "failed to merge {} for '{bookmark_name}'",
+                            fk.format_ref(pr.number)
+                        )
+                    })?;
 
                 merged.push(MergedPr {
                     bookmark_name,
@@ -258,12 +272,8 @@ pub fn execute_merge_plan_watch(
                     break;
                 }
 
-                let changed = report_status_changes(
-                    &bookmark_name,
-                    prev_reasons.as_deref(),
-                    &reasons,
-                    fk,
-                );
+                let changed =
+                    report_status_changes(&bookmark_name, prev_reasons.as_deref(), &reasons, fk);
 
                 if !changed && last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
                     let now = local_time_hhmm();
@@ -294,8 +304,14 @@ pub fn execute_merge_plan_watch(
         // Reconcile after any segment advance (merged or already-merged).
         if seg_idx > prev_seg_idx && seg_idx < segments.len() {
             let fresh = reconcile_after_merge(
-                jj, forge, segments, prev_seg_idx, plan, fk,
-                &mut local_degraded, &mut local_warnings,
+                jj,
+                forge,
+                segments,
+                prev_seg_idx,
+                plan,
+                fk,
+                &mut local_degraded,
+                &mut local_warnings,
             );
             if let Some(fresh_map) = fresh {
                 pr_map = fresh_map;
@@ -319,9 +335,13 @@ pub(crate) fn local_time_hhmm() -> String {
 
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     #[cfg(unix)]
-    unsafe { libc::localtime_r(&secs, &mut tm) };
+    unsafe {
+        libc::localtime_r(&secs, &mut tm)
+    };
     #[cfg(windows)]
-    unsafe { libc::localtime_s(&mut tm, &secs) };
+    unsafe {
+        libc::localtime_s(&mut tm, &secs)
+    };
     format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
 }
 
@@ -335,8 +355,8 @@ mod tests {
         ReviewSummary,
     };
     use crate::forge::{Forge, ForgeKind};
-    use crate::jj::types::{Bookmark, LogEntry, NarrowedSegment};
     use crate::jj::Jj;
+    use crate::jj::types::{Bookmark, LogEntry, NarrowedSegment};
     use crate::merge::plan::MergeOptions;
 
     use anyhow::Result;
@@ -345,19 +365,39 @@ mod tests {
 
     struct StubJj;
     impl Jj for StubJj {
-        fn git_fetch(&self) -> Result<()> { Ok(()) }
-        fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> { Ok(vec![]) }
-        fn get_changes_to_commit(&self, _to: &str) -> Result<Vec<LogEntry>> { Ok(vec![]) }
-        fn get_git_remotes(&self) -> Result<Vec<crate::jj::types::GitRemote>> { Ok(vec![]) }
-        fn get_default_branch(&self) -> Result<String> { Ok("main".to_string()) }
-        fn push_bookmark(&self, _name: &str, _remote: &str) -> Result<()> { Ok(()) }
-        fn get_working_copy_commit_id(&self) -> Result<String> { Ok("wc".to_string()) }
-        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> { Ok(()) }
-        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> { Ok(()) }
+        fn git_fetch(&self) -> Result<()> {
+            Ok(())
+        }
+        fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> {
+            Ok(vec![])
+        }
+        fn get_changes_to_commit(&self, _to: &str) -> Result<Vec<LogEntry>> {
+            Ok(vec![])
+        }
+        fn get_git_remotes(&self) -> Result<Vec<crate::jj::types::GitRemote>> {
+            Ok(vec![])
+        }
+        fn get_default_branch(&self) -> Result<String> {
+            Ok("main".to_string())
+        }
+        fn push_bookmark(&self, _name: &str, _remote: &str) -> Result<()> {
+            Ok(())
+        }
+        fn get_working_copy_commit_id(&self) -> Result<String> {
+            Ok("wc".to_string())
+        }
+        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> {
+            Ok(())
+        }
+        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> {
+            Ok(())
+        }
         fn resolve_change_id(&self, _change_id: &str) -> Result<Vec<String>> {
             Ok(vec!["dummy".to_string()])
         }
-        fn is_conflicted(&self, _revset: &str) -> Result<bool> { Ok(false) }
+        fn is_conflicted(&self, _revset: &str) -> Result<bool> {
+            Ok(false)
+        }
     }
 
     struct ScriptedForge {
@@ -406,23 +446,38 @@ mod tests {
             // Return based on scripted sequence
             let mut seq = self.eval_sequence.lock().expect("poisoned");
             let result = if seq.is_empty() {
-                return Ok(PrMergeability { mergeable: Some(true), mergeable_state: "clean".to_string() });
+                return Ok(PrMergeability {
+                    mergeable: Some(true),
+                    mergeable_state: "clean".to_string(),
+                });
             } else {
                 seq.remove(0)
             };
             match result {
-                EvalResult::Mergeable => Ok(PrMergeability { mergeable: Some(true), mergeable_state: "clean".to_string() }),
+                EvalResult::Mergeable => Ok(PrMergeability {
+                    mergeable: Some(true),
+                    mergeable_state: "clean".to_string(),
+                }),
                 EvalResult::Blocked(reasons) => {
                     // Map first reason to appropriate mergeability
                     if reasons.iter().any(|r| matches!(r, BlockReason::Conflicted)) {
-                        Ok(PrMergeability { mergeable: Some(false), mergeable_state: "dirty".to_string() })
+                        Ok(PrMergeability {
+                            mergeable: Some(false),
+                            mergeable_state: "dirty".to_string(),
+                        })
                     } else if reasons
                         .iter()
                         .any(|r| matches!(r, BlockReason::MergeabilityUnknown))
                     {
-                        Ok(PrMergeability { mergeable: None, mergeable_state: "unknown".to_string() })
+                        Ok(PrMergeability {
+                            mergeable: None,
+                            mergeable_state: "unknown".to_string(),
+                        })
                     } else {
-                        Ok(PrMergeability { mergeable: Some(true), mergeable_state: "clean".to_string() })
+                        Ok(PrMergeability {
+                            mergeable: Some(true),
+                            mergeable_state: "clean".to_string(),
+                        })
                     }
                 }
             }
@@ -438,12 +493,7 @@ mod tests {
             Ok(ChecksStatus::Pass)
         }
 
-        fn get_pr_reviews(
-            &self,
-            _owner: &str,
-            _repo: &str,
-            _number: u64,
-        ) -> Result<ReviewSummary> {
+        fn get_pr_reviews(&self, _owner: &str, _repo: &str, _number: u64) -> Result<ReviewSummary> {
             Ok(ReviewSummary {
                 approved_count: 1,
                 changes_requested: false,
@@ -462,26 +512,76 @@ mod tests {
         }
 
         fn create_pr(
-            &self, _o: &str, _r: &str, _t: &str, _body: &str, _h: &str, _b: &str, _d: bool,
+            &self,
+            _o: &str,
+            _r: &str,
+            _t: &str,
+            _body: &str,
+            _h: &str,
+            _b: &str,
+            _d: bool,
         ) -> Result<PullRequest> {
             unimplemented!()
         }
-        fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn mark_pr_ready(&self, _o: &str, _r: &str, _n: u64) -> Result<()> { Ok(()) }
-        fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> { Ok(()) }
-        fn list_comments(&self, _o: &str, _r: &str, _n: u64) -> Result<Vec<crate::forge::IssueComment>> { Ok(vec![]) }
-        fn create_comment(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<crate::forge::IssueComment> { unimplemented!() }
-        fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn get_authenticated_user(&self) -> Result<String> { Ok("user".to_string()) }
-        fn find_merged_pr(&self, _o: &str, _r: &str, ref_name: &str) -> Result<Option<PullRequest>> {
-            Ok(self.merged_prs.lock().expect("poisoned")
+        fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn mark_pr_ready(&self, _o: &str, _r: &str, _n: u64) -> Result<()> {
+            Ok(())
+        }
+        fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> {
+            Ok(())
+        }
+        fn list_comments(
+            &self,
+            _o: &str,
+            _r: &str,
+            _n: u64,
+        ) -> Result<Vec<crate::forge::IssueComment>> {
+            Ok(vec![])
+        }
+        fn create_comment(
+            &self,
+            _o: &str,
+            _r: &str,
+            _n: u64,
+            _b: &str,
+        ) -> Result<crate::forge::IssueComment> {
+            unimplemented!()
+        }
+        fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn get_authenticated_user(&self) -> Result<String> {
+            Ok("user".to_string())
+        }
+        fn find_merged_pr(
+            &self,
+            _o: &str,
+            _r: &str,
+            ref_name: &str,
+        ) -> Result<Option<PullRequest>> {
+            Ok(self
+                .merged_prs
+                .lock()
+                .expect("poisoned")
                 .iter()
                 .find(|(name, _)| name == ref_name)
                 .map(|(_, pr)| pr.clone()))
         }
-        fn get_pr_state(&self, _o: &str, _r: &str, _n: u64) -> Result<crate::forge::types::PrState> {
-            Ok(crate::forge::types::PrState { merged: false, state: "open".to_string() })
+        fn get_pr_state(
+            &self,
+            _o: &str,
+            _r: &str,
+            _n: u64,
+        ) -> Result<crate::forge::types::PrState> {
+            Ok(crate::forge::types::PrState {
+                merged: false,
+                state: "open".to_string(),
+            })
         }
     }
 
@@ -561,15 +661,13 @@ mod tests {
 
     #[test]
     fn test_watch_merges_immediately_when_ready() {
-        let forge = ScriptedForge::new(vec![EvalResult::Mergeable])
-            .with_prs(vec![make_pr("auth", 1)]);
+        let forge =
+            ScriptedForge::new(vec![EvalResult::Mergeable]).with_prs(vec![make_pr("auth", 1)]);
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
-        let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&StubJj, &forge, &plan, &segments, test_opts()).unwrap();
 
         assert_eq!(result.merged.len(), 1);
         assert_eq!(result.merged[0].pr_number, 1);
@@ -586,10 +684,8 @@ mod tests {
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
-        let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&StubJj, &forge, &plan, &segments, test_opts()).unwrap();
 
         assert_eq!(result.merged.len(), 1);
         assert_eq!(forge.merge_calls(), vec![1]);
@@ -606,10 +702,8 @@ mod tests {
         let segments = vec![make_segment("auth"), make_segment("profile")];
         let plan = default_plan();
 
-        let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&StubJj, &forge, &plan, &segments, test_opts()).unwrap();
 
         assert_eq!(result.merged.len(), 2);
         assert_eq!(forge.merge_calls(), vec![1, 2]);
@@ -617,33 +711,36 @@ mod tests {
 
     #[test]
     fn test_watch_stops_at_nopr() {
-        let forge = ScriptedForge::new(vec![])
-            .with_prs(vec![]);
+        let forge = ScriptedForge::new(vec![]).with_prs(vec![]);
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
-        let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&StubJj, &forge, &plan, &segments, test_opts()).unwrap();
 
         assert!(result.merged.is_empty());
         assert!(result.blocked_at.is_some());
         let blocked = result.blocked_at.unwrap();
-        assert!(blocked.reasons.iter().any(|r| matches!(r, BlockReason::NoPr)));
+        assert!(
+            blocked
+                .reasons
+                .iter()
+                .any(|r| matches!(r, BlockReason::NoPr))
+        );
     }
 
     #[test]
     fn test_watch_respects_shutdown_flag() {
-        let forge = ScriptedForge::new(vec![
-            EvalResult::Blocked(vec![BlockReason::ChecksPending]),
-        ])
-        .with_prs(vec![make_pr("auth", 1)]);
+        let forge = ScriptedForge::new(vec![EvalResult::Blocked(vec![BlockReason::ChecksPending])])
+            .with_prs(vec![make_pr("auth", 1)]);
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
         let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments,
+            &StubJj,
+            &forge,
+            &plan,
+            &segments,
             WatchOptions {
                 shutdown: Arc::new(AtomicBool::new(true)),
                 timeout: None,
@@ -658,15 +755,16 @@ mod tests {
 
     #[test]
     fn test_watch_respects_timeout() {
-        let forge = ScriptedForge::new(vec![
-            EvalResult::Blocked(vec![BlockReason::ChecksPending]),
-        ])
-        .with_prs(vec![make_pr("auth", 1)]);
+        let forge = ScriptedForge::new(vec![EvalResult::Blocked(vec![BlockReason::ChecksPending])])
+            .with_prs(vec![make_pr("auth", 1)]);
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
         let result = execute_merge_plan_watch(
-            &StubJj, &forge, &plan, &segments,
+            &StubJj,
+            &forge,
+            &plan,
+            &segments,
             WatchOptions {
                 shutdown: Arc::new(AtomicBool::new(false)),
                 timeout: Some(Duration::ZERO),
@@ -688,37 +786,97 @@ mod tests {
             fn get_pr_mergeability(&self, _o: &str, _r: &str, _n: u64) -> Result<PrMergeability> {
                 anyhow::bail!("API error")
             }
-            fn get_pr_checks_status(&self, _o: &str, _r: &str, _ref_name: &str) -> Result<ChecksStatus> {
+            fn get_pr_checks_status(
+                &self,
+                _o: &str,
+                _r: &str,
+                _ref_name: &str,
+            ) -> Result<ChecksStatus> {
                 Ok(ChecksStatus::Pass)
             }
             fn get_pr_reviews(&self, _o: &str, _r: &str, _n: u64) -> Result<ReviewSummary> {
-                Ok(ReviewSummary { approved_count: 1, changes_requested: false })
+                Ok(ReviewSummary {
+                    approved_count: 1,
+                    changes_requested: false,
+                })
             }
-            fn merge_pr(&self, _o: &str, _r: &str, _n: u64, _m: MergeMethod) -> Result<()> { Ok(()) }
-            fn create_pr(&self, _o: &str, _r: &str, _t: &str, _body: &str, _h: &str, _b: &str, _d: bool) -> Result<PullRequest> { unimplemented!() }
-            fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-            fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-            fn mark_pr_ready(&self, _o: &str, _r: &str, _n: u64) -> Result<()> { Ok(()) }
-            fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> { Ok(()) }
-            fn list_comments(&self, _o: &str, _r: &str, _n: u64) -> Result<Vec<crate::forge::IssueComment>> { Ok(vec![]) }
-            fn create_comment(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<crate::forge::IssueComment> { unimplemented!() }
-            fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> { Ok(()) }
-            fn get_authenticated_user(&self) -> Result<String> { Ok("user".to_string()) }
-            fn find_merged_pr(&self, _o: &str, _r: &str, _ref_name: &str) -> Result<Option<PullRequest>> {
+            fn merge_pr(&self, _o: &str, _r: &str, _n: u64, _m: MergeMethod) -> Result<()> {
+                Ok(())
+            }
+            fn create_pr(
+                &self,
+                _o: &str,
+                _r: &str,
+                _t: &str,
+                _body: &str,
+                _h: &str,
+                _b: &str,
+                _d: bool,
+            ) -> Result<PullRequest> {
+                unimplemented!()
+            }
+            fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+                Ok(())
+            }
+            fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+                Ok(())
+            }
+            fn mark_pr_ready(&self, _o: &str, _r: &str, _n: u64) -> Result<()> {
+                Ok(())
+            }
+            fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> {
+                Ok(())
+            }
+            fn list_comments(
+                &self,
+                _o: &str,
+                _r: &str,
+                _n: u64,
+            ) -> Result<Vec<crate::forge::IssueComment>> {
+                Ok(vec![])
+            }
+            fn create_comment(
+                &self,
+                _o: &str,
+                _r: &str,
+                _n: u64,
+                _b: &str,
+            ) -> Result<crate::forge::IssueComment> {
+                unimplemented!()
+            }
+            fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> {
+                Ok(())
+            }
+            fn get_authenticated_user(&self) -> Result<String> {
+                Ok("user".to_string())
+            }
+            fn find_merged_pr(
+                &self,
+                _o: &str,
+                _r: &str,
+                _ref_name: &str,
+            ) -> Result<Option<PullRequest>> {
                 anyhow::bail!("API error")
             }
-            fn get_pr_state(&self, _o: &str, _r: &str, _n: u64) -> Result<crate::forge::types::PrState> {
-                Ok(crate::forge::types::PrState { merged: false, state: "open".to_string() })
+            fn get_pr_state(
+                &self,
+                _o: &str,
+                _r: &str,
+                _n: u64,
+            ) -> Result<crate::forge::types::PrState> {
+                Ok(crate::forge::types::PrState {
+                    merged: false,
+                    state: "open".to_string(),
+                })
             }
         }
 
         let segments = vec![make_segment("auth")];
         let plan = default_plan();
 
-        let result = execute_merge_plan_watch(
-            &StubJj, &FailingForge, &plan, &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&StubJj, &FailingForge, &plan, &segments, test_opts())
+                .unwrap();
 
         assert!(result.merged.is_empty());
     }
@@ -753,38 +911,67 @@ mod tests {
             calls: Mutex<Vec<String>>,
         }
         impl RecordingJj {
-            fn new() -> Self { Self { calls: Mutex::new(Vec::new()) } }
-            fn calls(&self) -> Vec<String> { self.calls.lock().expect("poisoned").clone() }
+            fn new() -> Self {
+                Self {
+                    calls: Mutex::new(Vec::new()),
+                }
+            }
+            fn calls(&self) -> Vec<String> {
+                self.calls.lock().expect("poisoned").clone()
+            }
         }
         impl Jj for RecordingJj {
             fn git_fetch(&self) -> Result<()> {
-                self.calls.lock().expect("poisoned").push("git_fetch".to_string());
+                self.calls
+                    .lock()
+                    .expect("poisoned")
+                    .push("git_fetch".to_string());
                 Ok(())
             }
-            fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> { Ok(vec![]) }
-            fn get_changes_to_commit(&self, _to: &str) -> Result<Vec<LogEntry>> { Ok(vec![]) }
-            fn get_git_remotes(&self) -> Result<Vec<crate::jj::types::GitRemote>> { Ok(vec![]) }
-            fn get_default_branch(&self) -> Result<String> { Ok("main".to_string()) }
+            fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> {
+                Ok(vec![])
+            }
+            fn get_changes_to_commit(&self, _to: &str) -> Result<Vec<LogEntry>> {
+                Ok(vec![])
+            }
+            fn get_git_remotes(&self) -> Result<Vec<crate::jj::types::GitRemote>> {
+                Ok(vec![])
+            }
+            fn get_default_branch(&self) -> Result<String> {
+                Ok("main".to_string())
+            }
             fn push_bookmark(&self, name: &str, _remote: &str) -> Result<()> {
-                self.calls.lock().expect("poisoned").push(format!("push:{name}"));
+                self.calls
+                    .lock()
+                    .expect("poisoned")
+                    .push(format!("push:{name}"));
                 Ok(())
             }
-            fn get_working_copy_commit_id(&self) -> Result<String> { Ok("wc".to_string()) }
-            fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> { Ok(()) }
+            fn get_working_copy_commit_id(&self) -> Result<String> {
+                Ok("wc".to_string())
+            }
+            fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> {
+                Ok(())
+            }
             fn merge_into(&self, bookmark: &str, dest: &str) -> Result<()> {
-                self.calls.lock().expect("poisoned").push(format!("merge_into:{bookmark}:{dest}"));
+                self.calls
+                    .lock()
+                    .expect("poisoned")
+                    .push(format!("merge_into:{bookmark}:{dest}"));
                 Ok(())
             }
             fn resolve_change_id(&self, _change_id: &str) -> Result<Vec<String>> {
                 Ok(vec!["dummy".to_string()])
             }
-            fn is_conflicted(&self, _revset: &str) -> Result<bool> { Ok(false) }
+            fn is_conflicted(&self, _revset: &str) -> Result<bool> {
+                Ok(false)
+            }
         }
 
         // auth: not in open_prs, but find_merged_pr returns it → AlreadyMerged
         // profile: in open_prs, all checks pass → Mergeable
-        let forge = ScriptedForge::new(vec![EvalResult::Mergeable])
-            .with_prs(vec![make_pr("profile", 2)]);
+        let forge =
+            ScriptedForge::new(vec![EvalResult::Mergeable]).with_prs(vec![make_pr("profile", 2)]);
 
         // Override find_merged_pr to return auth as merged
         *forge.merged_prs.lock().expect("poisoned") =
@@ -793,10 +980,8 @@ mod tests {
         let segments = vec![make_segment("auth"), make_segment("profile")];
         let jj = RecordingJj::new();
 
-        let result = execute_merge_plan_watch(
-            &jj, &forge, &default_plan(), &segments, test_opts(),
-        )
-        .unwrap();
+        let result =
+            execute_merge_plan_watch(&jj, &forge, &default_plan(), &segments, test_opts()).unwrap();
 
         // auth skipped (already merged), profile merged
         assert_eq!(result.skipped_merged.len(), 1);

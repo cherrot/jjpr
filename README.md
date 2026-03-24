@@ -11,7 +11,7 @@ Multi-forge stacked pull requests for [Jujutsu](https://jj-vcs.github.io/jj/). P
 - **Merge commits** — `jj new A B` handled naturally; jjpr follows the first parent and lets other parents form independent stacks
 - **Pure HTTP** — talks directly to forge APIs via `ureq`; no `gh` or `glab` CLI required (though existing credentials are picked up automatically)
 - **Idempotent** — run commands repeatedly as you work; they converge to the correct state
-- **Stack-awareness comments** — PRs in multi-PR stacks get a navigation comment showing their position (single PRs look like normal PRs)
+- **Stack navigation** — PRs in multi-PR stacks get navigation links in the PR description by default, or comments if you prefer
 - **Foreign base detection** — automatically targets PRs at a coworker's branch when your stack builds on one
 
 ## Install
@@ -95,7 +95,7 @@ jjpr auth setup                       # Show auth setup instructions
 4. **Syncs the stack** after each merge (retargets bases, pushes updates)
 5. **Reports blockers** — if a PR needs review approval but has no reviewers, watch tells you
 
-Stack comments (showing each PR's position in the stack) are added automatically when the stack has 2 or more PRs. A single-PR stack looks like a normal PR to reviewers.
+Stack navigation (showing each PR's position in the stack) is added automatically when the stack has 2 or more PRs. By default it is written into the PR description; set `stack_navigation = "comment"` in config to use comments instead. A single-PR stack looks like a normal PR to reviewers.
 
 ```
 Watching stack for 'settings'...
@@ -168,9 +168,9 @@ Stack 2:
 2. Create PRs for bookmarks that don't have one yet
 3. Update PR base branches to maintain the stack structure
 4. Update PR bodies when commit descriptions have changed
-5. Add/update stack-awareness comments on multi-PR stacks
+5. Sync stack navigation on multi-PR stacks (in the PR description by default)
 
-Submit is idempotent — run it repeatedly as you work. After rebasing, editing commit messages, or restacking with `jj rebase`, just run `jjpr submit` again and it will push the updated commits, fix PR base branches, and sync descriptions. If everything is already up to date, it reports "Stack is up to date."
+Submit is idempotent — run it repeatedly as you work. After rebasing, editing commit messages, or restacking with `jj rebase`, just run `jjpr submit` again and it will push the updated commits, fix PR base branches, and sync descriptions plus stack navigation. If everything is already up to date, it reports "Stack is up to date."
 
 PRs are created with the commit description as the title and body.
 
@@ -211,6 +211,8 @@ Use `--ready` to convert all draft PRs in the stack to ready-for-review. These f
 PR title and body are derived from the first commit's description in each bookmark's segment.
 
 The PR body is wrapped in HTML comment markers. When you re-submit after changing a commit message, only the managed section is updated — any text you add above or below (screenshots, notes, test plans) is preserved.
+
+For multi-PR stacks, jjpr also adds a stack navigation section to the PR description by default. You can switch this back to PR comments with `stack_navigation = "comment"` in config.
 
 If you manually remove the markers from the PR body, jjpr will stop updating the description for that PR.
 
@@ -297,6 +299,9 @@ require_ci_pass = true
 
 # How to sync the remaining stack after merging a PR: "merge" or "rebase"
 reconcile_strategy = "merge"
+
+# Where to render stack navigation: "description" or "comment"
+stack_navigation = "description"
 ```
 
 #### Repo-local config
@@ -311,6 +316,9 @@ forge = "forgejo"
 
 # Environment variable name containing the API token
 forge_token_env = "FORGEJO_TOKEN"
+
+# Where to render stack navigation: "description" or "comment"
+stack_navigation = "description"
 ```
 
 When `forge` is set in config, auto-detection is skipped and the configured forge type is used directly. The token is read from the env var named by `forge_token_env` (or the forge's default: `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `FORGEJO_TOKEN`).

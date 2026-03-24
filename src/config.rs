@@ -17,6 +17,15 @@ pub enum ReconcileStrategy {
     Rebase,
 }
 
+/// Where jjpr should render stack navigation links.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StackNavigationMode {
+    #[default]
+    Description,
+    Comment,
+}
+
 /// User configuration for jjpr.
 ///
 /// Loaded from `~/.config/jjpr/config.toml` (global) and optionally merged
@@ -39,6 +48,9 @@ pub struct Config {
     /// "merge" (default): create merge commits — no force pushes.
     /// "rebase": rebase onto new base — causes force pushes.
     pub reconcile_strategy: ReconcileStrategy,
+
+    /// Where stack navigation should be rendered.
+    pub stack_navigation: StackNavigationMode,
 }
 
 impl Default for Config {
@@ -50,6 +62,7 @@ impl Default for Config {
             forge: None,
             forge_token_env: None,
             reconcile_strategy: ReconcileStrategy::Merge,
+            stack_navigation: StackNavigationMode::Description,
         }
     }
 }
@@ -62,9 +75,12 @@ pub fn config_path() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(xdg).join("jjpr").join("config.toml"));
     }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".config").join("jjpr").join("config.toml"))
+    std::env::var("HOME").ok().map(|home| {
+        PathBuf::from(home)
+            .join(".config")
+            .join("jjpr")
+            .join("config.toml")
+    })
 }
 
 /// Returns the repo-local config file path: `{repo_root}/.jj/jjpr.toml`.
@@ -83,8 +99,9 @@ pub fn load_config() -> Result<Config> {
 /// Load config from a specific path, falling back to defaults if the file doesn't exist.
 pub fn load_config_from(path: &Path) -> Result<Config> {
     match std::fs::read_to_string(path) {
-        Ok(contents) => toml::from_str(&contents)
-            .with_context(|| format!("failed to parse {}", path.display())),
+        Ok(contents) => {
+            toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
         Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
     }
@@ -160,8 +177,7 @@ pub fn write_config_to(path: &Path, content: &str) -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
-    std::fs::write(path, content)
-        .with_context(|| format!("failed to write {}", path.display()))
+    std::fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))
 }
 
 const DEFAULT_GLOBAL_CONFIG: &str = r#"# jjpr configuration
@@ -180,6 +196,9 @@ require_ci_pass = true
 # "merge" (default): creates merge commits on downstream branches — no force pushes.
 # "rebase": rebases downstream commits — causes force pushes on GitHub.
 reconcile_strategy = "merge"
+
+# Where to render stack navigation: "description" (default) or "comment"
+stack_navigation = "description"
 "#;
 
 const DEFAULT_REPO_CONFIG: &str = r#"# jjpr repo-local configuration
@@ -194,6 +213,9 @@ const DEFAULT_REPO_CONFIG: &str = r#"# jjpr repo-local configuration
 # Environment variable name containing the forge API token.
 # Falls back to the forge's default (GITHUB_TOKEN, GITLAB_TOKEN, FORGEJO_TOKEN).
 # forge_token_env = "FORGEJO_TOKEN"
+
+# Where to render stack navigation: "description" (default) or "comment"
+# stack_navigation = "description"
 "#;
 
 #[cfg(test)]
@@ -209,6 +231,7 @@ mod tests {
         assert!(config.forge.is_none());
         assert!(config.forge_token_env.is_none());
         assert_eq!(config.reconcile_strategy, ReconcileStrategy::Merge);
+        assert_eq!(config.stack_navigation, StackNavigationMode::Description);
     }
 
     #[test]
@@ -308,10 +331,29 @@ merge_method = "merge"
     }
 
     #[test]
+    fn test_parse_stack_navigation_description() {
+        let config: Config = toml::from_str(r#"stack_navigation = "description""#).unwrap();
+        assert_eq!(config.stack_navigation, StackNavigationMode::Description);
+    }
+
+    #[test]
+    fn test_parse_stack_navigation_comment() {
+        let config: Config = toml::from_str(r#"stack_navigation = "comment""#).unwrap();
+        assert_eq!(config.stack_navigation, StackNavigationMode::Comment);
+    }
+
+    #[test]
+    fn test_parse_invalid_stack_navigation() {
+        let result: Result<Config, _> = toml::from_str(r#"stack_navigation = "elsewhere""#);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_existing_configs_still_parse() {
         let config: Config = toml::from_str(DEFAULT_GLOBAL_CONFIG).unwrap();
         assert_eq!(config.merge_method, MergeMethod::Squash);
         assert!(config.forge.is_none());
+        assert_eq!(config.stack_navigation, StackNavigationMode::Description);
     }
 
     #[test]
@@ -319,6 +361,7 @@ merge_method = "merge"
         let config: Config = toml::from_str("").unwrap();
         assert!(config.forge.is_none());
         assert!(config.forge_token_env.is_none());
+        assert_eq!(config.stack_navigation, StackNavigationMode::Description);
     }
 
     #[test]
@@ -326,18 +369,26 @@ merge_method = "merge"
         let dir = tempfile::TempDir::new().unwrap();
 
         let global_path = dir.path().join("global.toml");
-        std::fs::write(&global_path, r#"
+        std::fs::write(
+            &global_path,
+            r#"
 merge_method = "rebase"
 required_approvals = 2
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let repo_root = dir.path().join("repo");
         std::fs::create_dir_all(repo_root.join(".jj")).unwrap();
         let repo_path = repo_root.join(".jj").join("jjpr.toml");
-        std::fs::write(&repo_path, r#"
+        std::fs::write(
+            &repo_path,
+            r#"
 forge = "forgejo"
 merge_method = "squash"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let global_table = load_toml_table(Some(&global_path)).unwrap();
         let repo_table = load_toml_table(Some(&repo_path)).unwrap();

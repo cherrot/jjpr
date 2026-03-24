@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use anyhow::Result;
 
 use crate::graph::ChangeGraph;
-use crate::jj::types::BookmarkSegment;
 use crate::jj::Jj;
+use crate::jj::types::BookmarkSegment;
 
 /// The result of analyzing which segments need to be submitted.
 #[derive(Debug)]
@@ -33,10 +33,11 @@ pub fn analyze_submission_graph(
 
     // Find which stack contains this bookmark
     for stack in &graph.stacks {
-        let target_idx = stack
-            .segments
-            .iter()
-            .position(|seg| seg.bookmarks.iter().any(|b| b.change_id == *target_change_id));
+        let target_idx = stack.segments.iter().position(|seg| {
+            seg.bookmarks
+                .iter()
+                .any(|b| b.change_id == *target_change_id)
+        });
 
         if let Some(idx) = target_idx {
             let relevant = stack.segments[..=idx].to_vec();
@@ -61,15 +62,18 @@ pub fn analyze_submission_graph(
 pub fn infer_target_bookmark(graph: &ChangeGraph, jj: &dyn Jj) -> Result<Option<String>> {
     let wc_commit_id = jj.get_working_copy_commit_id()?;
     let wc_ancestry = jj.get_changes_to_commit(&wc_commit_id)?;
-    let wc_change_ids: HashSet<String> = wc_ancestry.iter()
-        .map(|e| e.change_id.clone()).collect();
+    let wc_change_ids: HashSet<String> = wc_ancestry.iter().map(|e| e.change_id.clone()).collect();
 
     for stack in &graph.stacks {
-        let overlaps = stack.segments.iter().any(|seg|
-            seg.bookmarks.iter().any(|b| wc_change_ids.contains(&b.change_id))
-        );
+        let overlaps = stack.segments.iter().any(|seg| {
+            seg.bookmarks
+                .iter()
+                .any(|b| wc_change_ids.contains(&b.change_id))
+        });
         if overlaps {
-            let leaf = stack.segments.last()
+            let leaf = stack
+                .segments
+                .last()
                 .and_then(|s| s.bookmarks.first())
                 .ok_or_else(|| anyhow::anyhow!("stack has no bookmarks"))?;
             return Ok(Some(leaf.name.clone()));
@@ -186,23 +190,39 @@ mod tests {
     }
 
     impl crate::jj::Jj for StubJj {
-        fn git_fetch(&self) -> Result<()> { Ok(()) }
-        fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> { Ok(vec![]) }
+        fn git_fetch(&self) -> Result<()> {
+            Ok(())
+        }
+        fn get_my_bookmarks(&self) -> Result<Vec<Bookmark>> {
+            Ok(vec![])
+        }
         fn get_changes_to_commit(&self, _to: &str) -> Result<Vec<LogEntry>> {
             Ok(self.branch_changes.clone())
         }
-        fn get_git_remotes(&self) -> Result<Vec<GitRemote>> { Ok(vec![]) }
-        fn get_default_branch(&self) -> Result<String> { Ok("main".to_string()) }
-        fn push_bookmark(&self, _name: &str, _remote: &str) -> Result<()> { Ok(()) }
+        fn get_git_remotes(&self) -> Result<Vec<GitRemote>> {
+            Ok(vec![])
+        }
+        fn get_default_branch(&self) -> Result<String> {
+            Ok("main".to_string())
+        }
+        fn push_bookmark(&self, _name: &str, _remote: &str) -> Result<()> {
+            Ok(())
+        }
         fn get_working_copy_commit_id(&self) -> Result<String> {
             Ok(self.wc_commit_id.clone())
         }
-        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> { unimplemented!() }
-        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> { unimplemented!() }
+        fn rebase_onto(&self, _source: &str, _dest: &str) -> Result<()> {
+            unimplemented!()
+        }
+        fn merge_into(&self, _bookmark: &str, _dest: &str) -> Result<()> {
+            unimplemented!()
+        }
         fn resolve_change_id(&self, _change_id: &str) -> Result<Vec<String>> {
             Ok(vec!["dummy_commit_id".to_string()])
         }
-        fn is_conflicted(&self, _revset: &str) -> Result<bool> { Ok(false) }
+        fn is_conflicted(&self, _revset: &str) -> Result<bool> {
+            Ok(false)
+        }
     }
 
     fn make_log_entry(change_id: &str) -> LogEntry {
@@ -290,10 +310,7 @@ mod tests {
 
     #[test]
     fn test_analyze_propagates_base_branch() {
-        let segments = vec![
-            make_segment("auth", "ch1"),
-            make_segment("profile", "ch2"),
-        ];
+        let segments = vec![make_segment("auth", "ch1"), make_segment("profile", "ch2")];
         let mut graph = make_graph(segments);
         graph.stacks[0].base_branch = Some("coworker-feat".to_string());
 

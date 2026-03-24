@@ -50,7 +50,11 @@ fn test_real_jj_log_parsing() {
     assert_eq!(entry.author_email, "test@jjpr.dev");
     assert!(entry.description.starts_with("Add authentication"));
     assert_eq!(entry.description_first_line, "Add authentication");
-    assert_eq!(entry.parents.len(), 1, "should have one parent (the initial commit)");
+    assert_eq!(
+        entry.parents.len(),
+        1,
+        "should have one parent (the initial commit)"
+    );
 }
 
 #[test]
