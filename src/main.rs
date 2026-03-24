@@ -2,7 +2,7 @@
     clippy::unwrap_used,
     clippy::redundant_clone,
     clippy::too_many_lines,
-    clippy::excessive_nesting,
+    clippy::excessive_nesting
 )]
 
 use std::env;
@@ -17,9 +17,14 @@ use std::collections::HashMap;
 use jjpr::cli::{AuthCommands, Cli, Commands, ConfigCommands};
 use jjpr::config;
 use jjpr::forge::remote;
-use jjpr::forge::types::{ChecksStatus, MergeMethod, PrMergeability, PullRequest, RepoInfo, ReviewSummary};
-use jjpr::forge::{AuthScheme, Forge, ForgeClient, ForgejoForge, ForgeKind, GitHubForge, GitLabForge, PaginationStyle};
 use jjpr::forge::token as forge_token;
+use jjpr::forge::types::{
+    ChecksStatus, MergeMethod, PrMergeability, PullRequest, RepoInfo, ReviewSummary,
+};
+use jjpr::forge::{
+    AuthScheme, Forge, ForgeClient, ForgeKind, ForgejoForge, GitHubForge, GitLabForge,
+    PaginationStyle,
+};
 use jjpr::graph::change_graph;
 use jjpr::jj::{Jj, JjRunner};
 use jjpr::merge;
@@ -106,36 +111,34 @@ fn main() -> Result<()> {
                 cli.no_fetch,
             )
         }
-        Some(Commands::Auth { command }) => {
-            match command {
-                AuthCommands::Test => {
-                    let Some(detected) = detect_forge_for_cwd() else {
-                        anyhow::bail!(
-                            "could not detect forge. Run from a jj repo with a supported remote, \
+        Some(Commands::Auth { command }) => match command {
+            AuthCommands::Test => {
+                let Some(detected) = detect_forge_for_cwd() else {
+                    anyhow::bail!(
+                        "could not detect forge. Run from a jj repo with a supported remote, \
                              or set forge = \"...\" in .jj/jjpr.toml"
-                        );
-                    };
-                    print_forge_detection(&detected);
-                    let forge = build_forge(
-                        detected.kind,
-                        detected.host.as_deref(),
-                        detected.token,
-                        detected.token_env_var.as_deref(),
-                    )?;
-                    jjpr::auth::test_auth(forge.as_ref())
-                }
-                AuthCommands::Setup => {
-                    match detect_forge_for_cwd() {
-                        Some(detected) => {
-                            print_forge_detection(&detected);
-                            jjpr::auth::print_auth_help(detected.kind);
-                        }
-                        None => jjpr::auth::print_auth_help_all(),
-                    }
-                    Ok(())
-                }
+                    );
+                };
+                print_forge_detection(&detected);
+                let forge = build_forge(
+                    detected.kind,
+                    detected.host.as_deref(),
+                    detected.token,
+                    detected.token_env_var.as_deref(),
+                )?;
+                jjpr::auth::test_auth(forge.as_ref())
             }
-        }
+            AuthCommands::Setup => {
+                match detect_forge_for_cwd() {
+                    Some(detected) => {
+                        print_forge_detection(&detected);
+                        jjpr::auth::print_auth_help(detected.kind);
+                    }
+                    None => jjpr::auth::print_auth_help_all(),
+                }
+                Ok(())
+            }
+        },
         Some(Commands::Config { command }) => match command {
             ConfigCommands::Init { repo } => {
                 if repo {
@@ -184,12 +187,16 @@ fn resolve_stack(
             let graph = change_graph::build_change_graph(&jj)?;
             match analyze::infer_target_bookmark(&graph, &jj)? {
                 Some(inferred) => {
-                    println!("{command_verb} stack for '{inferred}' (inferred from working copy)\n");
+                    println!(
+                        "{command_verb} stack for '{inferred}' (inferred from working copy)\n"
+                    );
                     inferred
                 }
                 None => {
                     println!("No bookmark found in the working copy's ancestry.");
-                    println!("Set a bookmark with `jj bookmark set <name>` or specify one: `jjpr <command> <bookmark>`");
+                    println!(
+                        "Set a bookmark with `jj bookmark set <name>` or specify one: `jjpr <command> <bookmark>`"
+                    );
                     return Ok(None);
                 }
             }
@@ -203,7 +210,12 @@ fn resolve_stack(
 
     let remotes = jj.get_git_remotes()?;
     let resolved = resolve_forge(&remotes, &cfg, preferred_remote)?;
-    let ResolvedForge { forge, kind: forge_kind, remote_name, repo_info } = resolved;
+    let ResolvedForge {
+        forge,
+        kind: forge_kind,
+        remote_name,
+        repo_info,
+    } = resolved;
 
     let default_branch = jj.get_default_branch()?;
     let graph = change_graph::build_change_graph(&jj)?;
@@ -243,14 +255,29 @@ struct SubmitOptions<'a> {
 }
 
 fn cmd_submit(opts: SubmitOptions<'_>) -> Result<()> {
-    let Some(stack) = resolve_stack(opts.bookmark, opts.preferred_remote, opts.no_fetch, "Submitting")? else {
+    let Some(stack) = resolve_stack(
+        opts.bookmark,
+        opts.preferred_remote,
+        opts.no_fetch,
+        "Submitting",
+    )?
+    else {
         return Ok(());
     };
 
     // Pre-flight: check for conflicted commits before attempting any pushes
-    let conflicted: Vec<_> = stack.segments.iter()
-        .flat_map(|seg| seg.changes.iter().filter(|c| c.conflict)
-            .map(|c| (seg.bookmark.name.as_str(), c.change_id.as_str(), c.description_first_line.as_str())))
+    let conflicted: Vec<_> = stack
+        .segments
+        .iter()
+        .flat_map(|seg| {
+            seg.changes.iter().filter(|c| c.conflict).map(|c| {
+                (
+                    seg.bookmark.name.as_str(),
+                    c.change_id.as_str(),
+                    c.description_first_line.as_str(),
+                )
+            })
+        })
         .collect();
     if !conflicted.is_empty() {
         eprintln!("Error: cannot push — some commits have unresolved conflicts:\n");
@@ -279,7 +306,14 @@ fn cmd_submit(opts: SubmitOptions<'_>) -> Result<()> {
     if opts.bookmark.is_some() {
         println!("Submitting stack for '{}'...\n", stack.target_bookmark);
     }
-    execute::execute_submission_plan(&stack.jj, stack.forge.as_ref(), &submission_plan, opts.reviewers, opts.dry_run)?;
+    execute::execute_submission_plan(
+        &stack.jj,
+        stack.forge.as_ref(),
+        &submission_plan,
+        opts.reviewers,
+        opts.dry_run,
+        stack.config.stack_navigation,
+    )?;
     println!("\nDone.");
 
     Ok(())
@@ -405,7 +439,12 @@ fn try_load_pr_info(
 ) -> Option<PrInfoResult> {
     let remotes = jj.get_git_remotes().ok()?;
     let resolved = resolve_forge(&remotes, cfg, None).ok()?;
-    let ResolvedForge { forge, kind, repo_info, .. } = resolved;
+    let ResolvedForge {
+        forge,
+        kind,
+        repo_info,
+        ..
+    } = resolved;
 
     let all_prs = match forge.list_open_prs(&repo_info.owner, &repo_info.repo) {
         Ok(prs) => prs,
@@ -446,13 +485,24 @@ fn fetch_segment_status(
         .get_pr_mergeability(&repo_info.owner, &repo_info.repo, pr.number)
         .ok();
     let checks = forge
-        .get_pr_checks_status(&repo_info.owner, &repo_info.repo,
-            if pr.head.sha.is_empty() { &pr.head.ref_name } else { &pr.head.sha })
+        .get_pr_checks_status(
+            &repo_info.owner,
+            &repo_info.repo,
+            if pr.head.sha.is_empty() {
+                &pr.head.ref_name
+            } else {
+                &pr.head.sha
+            },
+        )
         .ok();
     let reviews = forge
         .get_pr_reviews(&repo_info.owner, &repo_info.repo, pr.number)
         .ok();
-    SegmentDisplayStatus { mergeability, checks, reviews }
+    SegmentDisplayStatus {
+        mergeability,
+        checks,
+        reviews,
+    }
 }
 
 fn format_status_line(status: &SegmentDisplayStatus, is_draft: bool) -> String {
@@ -485,7 +535,11 @@ fn format_status_line(status: &SegmentDisplayStatus, is_draft: bool) -> String {
         }
         parts.push(format!(
             "{} {} approval{}",
-            if r.approved_count > 0 { "\u{2713}" } else { "\u{2717}" },
+            if r.approved_count > 0 {
+                "\u{2713}"
+            } else {
+                "\u{2717}"
+            },
             r.approved_count,
             if r.approved_count == 1 { "" } else { "s" },
         ));
@@ -512,19 +566,27 @@ struct MergeArgs<'a> {
 }
 
 fn cmd_merge(args: MergeArgs<'_>, dry_run: bool, no_fetch: bool) -> Result<()> {
-    let Some(stack) = resolve_stack(args.bookmark, args.preferred_remote, no_fetch, "Merging")? else {
+    let Some(stack) = resolve_stack(args.bookmark, args.preferred_remote, no_fetch, "Merging")?
+    else {
         return Ok(());
     };
 
     let merge_options = merge::plan::MergeOptions {
         merge_method: args.merge_method.unwrap_or(stack.config.merge_method),
-        required_approvals: args.required_approvals.unwrap_or(stack.config.required_approvals),
-        require_ci_pass: args.ci_pass_override.unwrap_or(stack.config.require_ci_pass),
-        reconcile_strategy: args.reconcile_strategy.unwrap_or(stack.config.reconcile_strategy),
+        required_approvals: args
+            .required_approvals
+            .unwrap_or(stack.config.required_approvals),
+        require_ci_pass: args
+            .ci_pass_override
+            .unwrap_or(stack.config.require_ci_pass),
+        reconcile_strategy: args
+            .reconcile_strategy
+            .unwrap_or(stack.config.reconcile_strategy),
         ready: args.ready,
     };
 
-    let stack_base_str = args.base_override
+    let stack_base_str = args
+        .base_override
         .map(|s| s.to_string())
         .or(stack.stack_base.clone());
     let stack_base = stack_base_str.as_deref();
@@ -549,11 +611,15 @@ fn cmd_merge(args: MergeArgs<'_>, dry_run: bool, no_fetch: bool) -> Result<()> {
         ctrlc::set_handler(move || {
             eprint!("\nInterrupting after current operation completes...");
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
-        }).expect("failed to set Ctrl+C handler");
+        })
+        .expect("failed to set Ctrl+C handler");
 
         let timeout = args.timeout.map(|m| std::time::Duration::from_secs(m * 60));
         let result = merge::watch::execute_merge_plan_watch(
-            &stack.jj, stack.forge.as_ref(), &merge_plan, &stack.segments,
+            &stack.jj,
+            stack.forge.as_ref(),
+            &merge_plan,
+            &stack.segments,
             merge::watch::WatchOptions {
                 shutdown,
                 timeout,
@@ -570,7 +636,11 @@ fn cmd_merge(args: MergeArgs<'_>, dry_run: bool, no_fetch: bool) -> Result<()> {
     }
 
     let result = merge::execute::execute_merge_plan(
-        &stack.jj, stack.forge.as_ref(), &merge_plan, &stack.segments, dry_run,
+        &stack.jj,
+        stack.forge.as_ref(),
+        &merge_plan,
+        &stack.segments,
+        dry_run,
     )?;
 
     print_merge_summary(&result);
@@ -595,7 +665,8 @@ fn cmd_watch(
     ctrlc::set_handler(move || {
         eprint!("\nInterrupting after current operation completes...");
         flag.store(true, std::sync::atomic::Ordering::Relaxed);
-    }).expect("failed to set Ctrl+C handler");
+    })
+    .expect("failed to set Ctrl+C handler");
 
     // For watch: if no bookmark is specified, try to infer one. If none exists
     // yet, wait for one to appear (unlike submit/merge which exit immediately).
@@ -608,7 +679,8 @@ fn cmd_watch(
         match analyze::infer_target_bookmark(&graph, &jj)? {
             Some(name) => Some(name),
             None => {
-                let deadline = timeout.map(|m| std::time::Instant::now() + std::time::Duration::from_secs(m * 60));
+                let deadline = timeout
+                    .map(|m| std::time::Instant::now() + std::time::Duration::from_secs(m * 60));
                 let poll = std::time::Duration::from_secs(5);
 
                 println!("Waiting for a bookmark in the working copy's ancestry...");
@@ -642,7 +714,13 @@ fn cmd_watch(
         }
     };
 
-    let Some(stack) = resolve_stack(resolved_bookmark.as_deref(), preferred_remote, no_fetch, "Watching")? else {
+    let Some(stack) = resolve_stack(
+        resolved_bookmark.as_deref(),
+        preferred_remote,
+        no_fetch,
+        "Watching",
+    )?
+    else {
         return Ok(());
     };
 
@@ -671,6 +749,7 @@ fn cmd_watch(
         &merge_options,
         &stack.target_bookmark,
         stack_base_str.as_deref(),
+        stack.config.stack_navigation,
         merge::watch::WatchOptions {
             shutdown,
             timeout: timeout_dur,
@@ -695,7 +774,10 @@ fn print_watch_summary(result: &jjpr::watch::WatchResult) {
     }
     if !result.prs_promoted.is_empty() {
         let n = result.prs_promoted.len();
-        println!("  Promoted {n} PR{} to ready.", if n == 1 { "" } else { "s" });
+        println!(
+            "  Promoted {n} PR{} to ready.",
+            if n == 1 { "" } else { "s" }
+        );
     }
     print_merge_summary(mr);
 }
@@ -704,7 +786,11 @@ fn print_merge_summary(result: &merge::execute::MergeResult) {
     if result.merged.is_empty() && result.skipped_merged.is_empty() && result.blocked_at.is_none() {
         println!("\nNo PRs to merge in this stack.");
     } else if let Some(ref blocked) = result.blocked_at {
-        if blocked.reasons.iter().any(|r| matches!(r, merge::plan::BlockReason::NoPr)) {
+        if blocked
+            .reasons
+            .iter()
+            .any(|r| matches!(r, merge::plan::BlockReason::NoPr))
+        {
             println!("\nRun `jjpr submit` to create PRs, then re-run `jjpr watch`.");
         } else if blocked.reasons.iter().all(|r| r.is_transient()) {
             println!("\nRun `jjpr watch` to wait and auto-continue.");
@@ -714,7 +800,11 @@ fn print_merge_summary(result: &merge::execute::MergeResult) {
     } else if result.merged.is_empty() && !result.skipped_merged.is_empty() {
         println!("\nAll PRs in this stack are already merged.");
     } else {
-        println!("\nDone \u{2014} {} PR{} merged.", result.merged.len(), if result.merged.len() == 1 { "" } else { "s" });
+        println!(
+            "\nDone \u{2014} {} PR{} merged.",
+            result.merged.len(),
+            if result.merged.len() == 1 { "" } else { "s" }
+        );
     }
 }
 
@@ -734,11 +824,19 @@ fn print_local_warnings(
         println!("  {}", w.message);
     }
 
-    let merged_names: std::collections::HashSet<&str> = result.merged.iter()
+    let merged_names: std::collections::HashSet<&str> = result
+        .merged
+        .iter()
         .map(|m| m.bookmark_name.as_str())
-        .chain(result.skipped_merged.iter().map(|s| s.bookmark_name.as_str()))
+        .chain(
+            result
+                .skipped_merged
+                .iter()
+                .map(|s| s.bookmark_name.as_str()),
+        )
         .collect();
-    let unmerged: Vec<_> = segments.iter()
+    let unmerged: Vec<_> = segments
+        .iter()
         .filter(|s| !merged_names.contains(s.bookmark.name.as_str()))
         .collect();
 
@@ -746,15 +844,20 @@ fn print_local_warnings(
     println!("To accept the forge state (discard local divergence):");
     println!("  jj git fetch");
     for seg in &unmerged {
-        println!("  jj bookmark set {} -r {}@origin", seg.bookmark.name, seg.bookmark.name);
+        println!(
+            "  jj bookmark set {} -r {}@origin",
+            seg.bookmark.name, seg.bookmark.name
+        );
     }
 
     if let Some(first_unmerged) = unmerged.first() {
         println!();
         println!("Or to fix local state and push it to the forge:");
         let base = stack_base.unwrap_or(default_branch);
-        println!("  jj git fetch && jj rebase -s {} -d {base}",
-            first_unmerged.bookmark.change_id);
+        println!(
+            "  jj git fetch && jj rebase -s {} -d {base}",
+            first_unmerged.bookmark.change_id
+        );
         println!("  # resolve any conflicts, then:");
         println!("  jjpr submit");
     }
@@ -797,7 +900,12 @@ fn resolve_forge(
     preferred_remote: Option<&str>,
 ) -> Result<ResolvedForge> {
     if let Some(kind) = cfg.forge {
-        resolve_forge_from_config(remotes, kind, cfg.forge_token_env.as_deref(), preferred_remote)
+        resolve_forge_from_config(
+            remotes,
+            kind,
+            cfg.forge_token_env.as_deref(),
+            preferred_remote,
+        )
     } else {
         resolve_forge_auto(remotes, preferred_remote)
     }
@@ -814,11 +922,13 @@ fn resolve_forge_from_config(
 
     let remote = pick_remote(remotes, preferred_remote)?;
     let host = remote::extract_host(&remote.url);
-    let repo_info = remote::parse_url_as(&remote.url, kind)
-        .ok_or_else(|| anyhow::anyhow!(
+    let repo_info = remote::parse_url_as(&remote.url, kind).ok_or_else(|| {
+        anyhow::anyhow!(
             "could not parse owner/repo from remote '{}' URL: {}",
-            remote.name, remote.url
-        ))?;
+            remote.name,
+            remote.url
+        )
+    })?;
 
     let forge = build_forge(kind, host, token, token_env)?;
     Ok(ResolvedForge {
@@ -869,26 +979,48 @@ fn find_remote_host<'a>(remotes: &'a [jjpr::jj::GitRemote], remote_name: &str) -
         .and_then(|r| remote::extract_host(&r.url))
 }
 
-fn build_forge(kind: ForgeKind, host: Option<&str>, token: Option<String>, token_env: Option<&str>) -> Result<Box<dyn Forge>> {
+fn build_forge(
+    kind: ForgeKind,
+    host: Option<&str>,
+    token: Option<String>,
+    token_env: Option<&str>,
+) -> Result<Box<dyn Forge>> {
     let token = match token {
         Some(t) => t,
         None => forge_token::resolve_token(kind, token_env)?,
     };
     match kind {
         ForgeKind::GitHub => {
-            let client = ForgeClient::new("https://api.github.com", token, AuthScheme::Bearer, PaginationStyle::LinkHeader);
+            let client = ForgeClient::new(
+                "https://api.github.com",
+                token,
+                AuthScheme::Bearer,
+                PaginationStyle::LinkHeader,
+            );
             Ok(Box::new(GitHubForge::new(client)))
         }
         ForgeKind::GitLab => {
             let gitlab_host = host.unwrap_or("gitlab.com");
             let base_url = format!("https://{gitlab_host}/api/v4");
-            let client = ForgeClient::new(&base_url, token, AuthScheme::Bearer, PaginationStyle::LinkHeader);
+            let client = ForgeClient::new(
+                &base_url,
+                token,
+                AuthScheme::Bearer,
+                PaginationStyle::LinkHeader,
+            );
             Ok(Box::new(GitLabForge::new(client)))
         }
         ForgeKind::Forgejo => {
-            let host = host.ok_or_else(|| anyhow::anyhow!("could not determine Forgejo host from remote URL"))?;
+            let host = host.ok_or_else(|| {
+                anyhow::anyhow!("could not determine Forgejo host from remote URL")
+            })?;
             let base_url = format!("https://{host}/api/v1");
-            let client = ForgeClient::new(&base_url, token, AuthScheme::Token, PaginationStyle::PageNumber { limit: 50 });
+            let client = ForgeClient::new(
+                &base_url,
+                token,
+                AuthScheme::Token,
+                PaginationStyle::PageNumber { limit: 50 },
+            );
             Ok(Box::new(ForgejoForge::new(client)))
         }
     }
@@ -928,7 +1060,10 @@ fn detect_forge_for_cwd() -> Option<DetectedForge> {
         let host = pick_remote(&remotes, None)
             .ok()
             .and_then(|r| remote::extract_host(&r.url).map(|s| s.to_string()));
-        let env_var = cfg.forge_token_env.as_deref().unwrap_or(kind.token_env_var());
+        let env_var = cfg
+            .forge_token_env
+            .as_deref()
+            .unwrap_or(kind.token_env_var());
         let token = std::env::var(env_var).ok();
         return Some(DetectedForge {
             kind,
@@ -941,7 +1076,13 @@ fn detect_forge_for_cwd() -> Option<DetectedForge> {
 
     let (remote_name, kind, _) = remote::resolve_remote(&remotes, None).ok()?;
     let host = find_remote_host(&remotes, &remote_name).map(|s| s.to_string());
-    Some(DetectedForge { kind, host, token: None, token_env_var: None, source: ForgeSource::Remote(remote_name) })
+    Some(DetectedForge {
+        kind,
+        host,
+        token: None,
+        token_env_var: None,
+        source: ForgeSource::Remote(remote_name),
+    })
 }
 
 fn find_repo_root() -> Result<PathBuf> {

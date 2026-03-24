@@ -146,9 +146,8 @@ pub fn parse_log_output(output: &str) -> Result<Vec<LogEntry>> {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
-            let raw: RawLogEntry =
-                serde_json::from_str(line)
-                    .with_context(|| format!("failed to parse log JSON: {line}"))?;
+            let raw: RawLogEntry = serde_json::from_str(line)
+                .with_context(|| format!("failed to parse log JSON: {line}"))?;
 
             Ok(LogEntry {
                 commit_id: raw.commit_id,

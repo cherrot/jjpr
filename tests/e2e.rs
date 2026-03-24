@@ -3,8 +3,9 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use jjpr::forge::{AuthScheme, ForgeClient, ForgeKind, GitHubForge, PaginationStyle};
+use jjpr::config::StackNavigationMode;
 use jjpr::forge::types::RepoInfo;
+use jjpr::forge::{AuthScheme, ForgeClient, ForgeKind, GitHubForge, PaginationStyle};
 use jjpr::graph::change_graph;
 use jjpr::submit::{analyze, execute, plan, resolve};
 
@@ -81,13 +82,19 @@ impl Drop for E2eContext {
         // Close PRs with our prefix
         if let Ok(output) = Command::new("gh")
             .args([
-                "pr", "list", "--repo", &full_repo,
-                "--json", "number,headRefName",
-                "--state", "open", "--limit", "50",
+                "pr",
+                "list",
+                "--repo",
+                &full_repo,
+                "--json",
+                "number,headRefName",
+                "--state",
+                "open",
+                "--limit",
+                "50",
             ])
             .output()
-            && let Ok(prs) =
-                serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
+            && let Ok(prs) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
         {
             for pr in &prs {
                 let head = pr["headRefName"].as_str().unwrap_or("");
@@ -95,10 +102,7 @@ impl Drop for E2eContext {
                     let number = pr["number"].as_u64().unwrap_or(0);
                     if number > 0 {
                         let _ = Command::new("gh")
-                            .args([
-                                "pr", "close", &number.to_string(),
-                                "--repo", &full_repo,
-                            ])
+                            .args(["pr", "close", &number.to_string(), "--repo", &full_repo])
                             .output();
                     }
                 }
@@ -109,14 +113,10 @@ impl Drop for E2eContext {
         if let Ok(output) = Command::new("gh")
             .args([
                 "api",
-                &format!(
-                    "repos/{full_repo}/git/matching-refs/heads/{}",
-                    self.prefix
-                ),
+                &format!("repos/{full_repo}/git/matching-refs/heads/{}", self.prefix),
             ])
             .output()
-            && let Ok(refs) =
-                serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
+            && let Ok(refs) = serde_json::from_slice::<Vec<serde_json::Value>>(&output.stdout)
         {
             for r in &refs {
                 if let Some(ref_name) = r["ref"].as_str() {
@@ -124,7 +124,8 @@ impl Drop for E2eContext {
                         .args([
                             "api",
                             &format!("repos/{full_repo}/git/{ref_name}"),
-                            "-X", "DELETE",
+                            "-X",
+                            "DELETE",
                         ])
                         .output();
                 }
@@ -166,8 +167,7 @@ fn find_pr(head: &str) -> Option<serde_json::Value> {
         .output()
         .expect("gh pr list");
 
-    let prs: Vec<serde_json::Value> =
-        serde_json::from_slice(&output.stdout).ok()?;
+    let prs: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).ok()?;
     prs.into_iter().next()
 }
 
@@ -214,30 +214,40 @@ fn test_submit_creates_stacked_prs() {
     let jj = ctx.runner();
     let token = jjpr::forge::token::resolve_token(ForgeKind::GitHub, None)
         .expect("GitHub token required for E2E tests");
-    let client = ForgeClient::new("https://api.github.com", token, AuthScheme::Bearer, PaginationStyle::LinkHeader);
+    let client = ForgeClient::new(
+        "https://api.github.com",
+        token,
+        AuthScheme::Bearer,
+        PaginationStyle::LinkHeader,
+    );
     let github = GitHubForge::new(client);
 
     let graph = change_graph::build_change_graph(&jj).unwrap();
-    let analysis =
-        analyze::analyze_submission_graph(&graph, &profile_name).unwrap();
+    let analysis = analyze::analyze_submission_graph(&graph, &profile_name).unwrap();
     assert_eq!(
         analysis.relevant_segments.len(),
         2,
         "should have 2 segments in stack"
     );
 
-    let segments = resolve::resolve_bookmark_selections(
-        &analysis.relevant_segments,
-        false,
-    )
-    .unwrap();
+    let segments =
+        resolve::resolve_bookmark_selections(&analysis.relevant_segments, false).unwrap();
 
     let repo_info = RepoInfo {
         owner: OWNER.to_string(),
         repo: REPO.to_string(),
     };
     let submission_plan = plan::create_submission_plan(
-        &github, &segments, "origin", &repo_info, ForgeKind::GitHub, "main", false, false, &[], None,
+        &github,
+        &segments,
+        "origin",
+        &repo_info,
+        ForgeKind::GitHub,
+        "main",
+        false,
+        false,
+        &[],
+        None,
     )
     .unwrap();
 
@@ -250,7 +260,12 @@ fn test_submit_creates_stacked_prs() {
     );
 
     execute::execute_submission_plan(
-        &jj, &github, &submission_plan, &[], false,
+        &jj,
+        &github,
+        &submission_plan,
+        &[],
+        false,
+        StackNavigationMode::Description,
     )
     .unwrap();
 
@@ -259,45 +274,30 @@ fn test_submit_creates_stacked_prs() {
     assert!(auth_pr.is_some(), "auth PR should exist");
     let auth_pr = auth_pr.unwrap();
     assert_eq!(auth_pr["baseRefName"].as_str().unwrap(), "main");
-    assert_eq!(
-        auth_pr["title"].as_str().unwrap(),
-        "Add authentication"
-    );
+    assert_eq!(auth_pr["title"].as_str().unwrap(), "Add authentication");
 
     let profile_pr = find_pr(&profile_name);
     assert!(profile_pr.is_some(), "profile PR should exist");
     let profile_pr = profile_pr.unwrap();
-    assert_eq!(
-        profile_pr["baseRefName"].as_str().unwrap(),
-        auth_name
-    );
-    assert_eq!(
-        profile_pr["title"].as_str().unwrap(),
-        "Add user profile"
-    );
+    assert_eq!(profile_pr["baseRefName"].as_str().unwrap(), auth_name);
+    assert_eq!(profile_pr["title"].as_str().unwrap(), "Add user profile");
 
     // Verify stack comments exist on both PRs
-    let auth_comments =
-        list_comments(auth_pr["number"].as_u64().unwrap());
+    let auth_comments = list_comments(auth_pr["number"].as_u64().unwrap());
     assert!(
-        auth_comments
-            .iter()
-            .any(|c| c["body"]
-                .as_str()
-                .unwrap_or("")
-                .contains("<!-- jjpr:stack-info -->")),
+        auth_comments.iter().any(|c| c["body"]
+            .as_str()
+            .unwrap_or("")
+            .contains("<!-- jjpr:stack-info -->")),
         "auth PR should have stack comment"
     );
 
-    let profile_comments =
-        list_comments(profile_pr["number"].as_u64().unwrap());
+    let profile_comments = list_comments(profile_pr["number"].as_u64().unwrap());
     assert!(
-        profile_comments
-            .iter()
-            .any(|c| c["body"]
-                .as_str()
-                .unwrap_or("")
-                .contains("<!-- jjpr:stack-info -->")),
+        profile_comments.iter().any(|c| c["body"]
+            .as_str()
+            .unwrap_or("")
+            .contains("<!-- jjpr:stack-info -->")),
         "profile PR should have stack comment"
     );
 }

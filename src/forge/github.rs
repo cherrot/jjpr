@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 
-use super::http::ForgeClient;
-use super::types::{ChecksStatus, IssueComment, MergeMethod, PrMergeability, PrState, PullRequest, ReviewSummary};
 use super::Forge;
+use super::http::ForgeClient;
+use super::types::{
+    ChecksStatus, IssueComment, MergeMethod, PrMergeability, PrState, PullRequest, ReviewSummary,
+};
 
 /// GitHub implementation using direct HTTP via `ForgeClient`.
 pub struct GitHubForge {
@@ -69,14 +71,11 @@ fn parse_checks_status(
 /// COMMENTED and PENDING don't change approval status on GitHub,
 /// so we skip them to avoid overwriting a valid APPROVED state.
 fn parse_review_summary(reviews: &[serde_json::Value]) -> ReviewSummary {
-    let mut latest: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut latest: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for review in reviews {
         let user = review["user"]["login"].as_str().unwrap_or_default();
         let state = review["state"].as_str().unwrap_or_default();
-        if !user.is_empty()
-            && matches!(state, "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED")
-        {
+        if !user.is_empty() && matches!(state, "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED") {
             latest.insert(user.to_string(), state.to_string());
         }
     }
@@ -91,11 +90,7 @@ fn parse_review_summary(reviews: &[serde_json::Value]) -> ReviewSummary {
 }
 
 impl Forge for GitHubForge {
-    fn list_open_prs(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<PullRequest>> {
+    fn list_open_prs(&self, owner: &str, repo: &str) -> Result<Vec<PullRequest>> {
         let path = format!("repos/{owner}/{repo}/pulls?state=open&per_page=100");
         let items = self.client.get_paginated(&path)?;
         serde_json::from_value(serde_json::Value::Array(items))
@@ -126,15 +121,10 @@ impl Forge for GitHubForge {
         serde_json::from_value(output).context("failed to parse created PR response")
     }
 
-    fn update_pr_base(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-        base: &str,
-    ) -> Result<()> {
+    fn update_pr_base(&self, owner: &str, repo: &str, number: u64, base: &str) -> Result<()> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}");
-        self.client.patch(&path, &serde_json::json!({ "base": base }))?;
+        self.client
+            .patch(&path, &serde_json::json!({ "base": base }))?;
         Ok(())
     }
 
@@ -149,16 +139,12 @@ impl Forge for GitHubForge {
             return Ok(());
         }
         let path = format!("repos/{owner}/{repo}/pulls/{number}/requested_reviewers");
-        self.client.post(&path, &serde_json::json!({ "reviewers": reviewers }))?;
+        self.client
+            .post(&path, &serde_json::json!({ "reviewers": reviewers }))?;
         Ok(())
     }
 
-    fn list_comments(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<Vec<IssueComment>> {
+    fn list_comments(&self, owner: &str, repo: &str, number: u64) -> Result<Vec<IssueComment>> {
         let path = format!("repos/{owner}/{repo}/issues/{number}/comments?per_page=100");
         let items = self.client.get_paginated(&path)?;
         serde_json::from_value(serde_json::Value::Array(items))
@@ -173,40 +159,27 @@ impl Forge for GitHubForge {
         body: &str,
     ) -> Result<IssueComment> {
         let path = format!("repos/{owner}/{repo}/issues/{number}/comments");
-        let output = self.client.post(&path, &serde_json::json!({ "body": body }))?;
+        let output = self
+            .client
+            .post(&path, &serde_json::json!({ "body": body }))?;
         serde_json::from_value(output).context("failed to parse created comment response")
     }
 
-    fn update_comment(
-        &self,
-        owner: &str,
-        repo: &str,
-        comment_id: u64,
-        body: &str,
-    ) -> Result<()> {
+    fn update_comment(&self, owner: &str, repo: &str, comment_id: u64, body: &str) -> Result<()> {
         let path = format!("repos/{owner}/{repo}/issues/comments/{comment_id}");
-        self.client.patch(&path, &serde_json::json!({ "body": body }))?;
+        self.client
+            .patch(&path, &serde_json::json!({ "body": body }))?;
         Ok(())
     }
 
-    fn update_pr_body(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-        body: &str,
-    ) -> Result<()> {
+    fn update_pr_body(&self, owner: &str, repo: &str, number: u64, body: &str) -> Result<()> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}");
-        self.client.patch(&path, &serde_json::json!({ "body": body }))?;
+        self.client
+            .patch(&path, &serde_json::json!({ "body": body }))?;
         Ok(())
     }
 
-    fn mark_pr_ready(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<()> {
+    fn mark_pr_ready(&self, owner: &str, repo: &str, number: u64) -> Result<()> {
         // GitHub requires GraphQL for marking a PR as ready.
         // First fetch the node_id from REST, then use it in the mutation.
         let path = format!("repos/{owner}/{repo}/pulls/{number}");
@@ -216,27 +189,17 @@ impl Forge for GitHubForge {
             .ok_or_else(|| anyhow::anyhow!("PR response missing node_id field"))?;
 
         let query = "mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }";
-        self.client.graphql(
-            "graphql",
-            query,
-            &serde_json::json!({ "id": node_id }),
-        )?;
+        self.client
+            .graphql("graphql", query, &serde_json::json!({ "id": node_id }))?;
         Ok(())
     }
 
-    fn find_merged_pr(
-        &self,
-        owner: &str,
-        repo: &str,
-        head: &str,
-    ) -> Result<Option<PullRequest>> {
+    fn find_merged_pr(&self, owner: &str, repo: &str, head: &str) -> Result<Option<PullRequest>> {
         let encoded_head = super::http::url_encode(head);
-        let path = format!(
-            "repos/{owner}/{repo}/pulls?head={owner}:{encoded_head}&state=closed"
-        );
+        let path = format!("repos/{owner}/{repo}/pulls?head={owner}:{encoded_head}&state=closed");
         let output = self.client.get(&path)?;
-        let prs: Vec<PullRequest> = serde_json::from_value(output)
-            .context("failed to parse closed PR list response")?;
+        let prs: Vec<PullRequest> =
+            serde_json::from_value(output).context("failed to parse closed PR list response")?;
         Ok(prs.into_iter().find(|pr| pr.merged_at.is_some()))
     }
 
@@ -248,15 +211,12 @@ impl Forge for GitHubForge {
             .ok_or_else(|| anyhow::anyhow!("user response missing login field"))
     }
 
-    fn merge_pr(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-        method: MergeMethod,
-    ) -> Result<()> {
+    fn merge_pr(&self, owner: &str, repo: &str, number: u64, method: MergeMethod) -> Result<()> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}/merge");
-        self.client.put(&path, &serde_json::json!({ "merge_method": method.to_string() }))?;
+        self.client.put(
+            &path,
+            &serde_json::json!({ "merge_method": method.to_string() }),
+        )?;
         Ok(())
     }
 
@@ -267,34 +227,22 @@ impl Forge for GitHubForge {
         head_ref: &str,
     ) -> Result<ChecksStatus> {
         let encoded_ref = super::http::url_encode(head_ref);
-        let check_runs_path =
-            format!("repos/{owner}/{repo}/commits/{encoded_ref}/check-runs");
+        let check_runs_path = format!("repos/{owner}/{repo}/commits/{encoded_ref}/check-runs");
         let check_runs = self.client.get(&check_runs_path)?;
 
-        let status_path =
-            format!("repos/{owner}/{repo}/commits/{encoded_ref}/status");
+        let status_path = format!("repos/{owner}/{repo}/commits/{encoded_ref}/status");
         let status = self.client.get(&status_path)?;
 
         Ok(parse_checks_status(&check_runs, &status))
     }
 
-    fn get_pr_reviews(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<ReviewSummary> {
+    fn get_pr_reviews(&self, owner: &str, repo: &str, number: u64) -> Result<ReviewSummary> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}/reviews?per_page=100");
         let items = self.client.get_paginated(&path)?;
         Ok(parse_review_summary(&items))
     }
 
-    fn get_pr_state(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<PrState> {
+    fn get_pr_state(&self, owner: &str, repo: &str, number: u64) -> Result<PrState> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}");
         let pr = self.client.get(&path)?;
         Ok(PrState {
@@ -303,12 +251,7 @@ impl Forge for GitHubForge {
         })
     }
 
-    fn get_pr_mergeability(
-        &self,
-        owner: &str,
-        repo: &str,
-        number: u64,
-    ) -> Result<PrMergeability> {
+    fn get_pr_mergeability(&self, owner: &str, repo: &str, number: u64) -> Result<PrMergeability> {
         let path = format!("repos/{owner}/{repo}/pulls/{number}");
         let pr = self.client.get(&path)?;
 
@@ -342,7 +285,10 @@ mod tests {
                 {"state": "success"}
             ]
         });
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Pass);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Pass
+        );
     }
 
     #[test]
@@ -353,7 +299,10 @@ mod tests {
             ]
         });
         let status = serde_json::json!({"statuses": []});
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Pending);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Pending
+        );
     }
 
     #[test]
@@ -364,14 +313,20 @@ mod tests {
             ]
         });
         let status = serde_json::json!({"statuses": []});
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Fail);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Fail
+        );
     }
 
     #[test]
     fn test_parse_checks_none() {
         let check_runs = serde_json::json!({"check_runs": []});
         let status = serde_json::json!({"statuses": []});
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::None);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::None
+        );
     }
 
     #[test]
@@ -385,7 +340,10 @@ mod tests {
         let status = serde_json::json!({
             "statuses": [{"state": "pending"}]
         });
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Fail);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Fail
+        );
     }
 
     #[test]
@@ -396,7 +354,10 @@ mod tests {
             ]
         });
         let status = serde_json::json!({"statuses": []});
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Pending);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Pending
+        );
     }
 
     #[test]
@@ -407,7 +368,10 @@ mod tests {
             ]
         });
         let status = serde_json::json!({"statuses": []});
-        assert_eq!(parse_checks_status(&check_runs, &status), ChecksStatus::Pass);
+        assert_eq!(
+            parse_checks_status(&check_runs, &status),
+            ChecksStatus::Pass
+        );
     }
 
     #[test]

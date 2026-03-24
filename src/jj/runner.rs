@@ -3,9 +3,9 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 
+use super::Jj;
 use super::templates::{self, BOOKMARK_TEMPLATE, LOG_TEMPLATE};
 use super::types::{Bookmark, GitRemote, LogEntry};
-use super::Jj;
 
 /// Real jj implementation that shells out to the jj binary.
 pub struct JjRunner {
@@ -130,21 +130,20 @@ impl Jj for JjRunner {
     }
 
     fn push_bookmark(&self, name: &str, remote: &str) -> Result<()> {
-        self.run_jj(&[
-            "git",
-            "push",
-            "--remote",
-            remote,
-            "--bookmark",
-            name,
-        ])?;
+        self.run_jj(&["git", "push", "--remote", remote, "--bookmark", name])?;
         Ok(())
     }
 
     fn get_working_copy_commit_id(&self) -> Result<String> {
         let output = self.run_jj(&[
-            "log", "-r", "@", "--no-graph", "--limit", "1",
-            "--template", "commit_id",
+            "log",
+            "-r",
+            "@",
+            "--no-graph",
+            "--limit",
+            "1",
+            "--template",
+            "commit_id",
         ])?;
         let id = output.trim().to_string();
         if id.is_empty() {
@@ -174,7 +173,12 @@ impl Jj for JjRunner {
     fn resolve_change_id(&self, change_id: &str) -> Result<Vec<String>> {
         let revset = format!("all:{change_id}");
         let output = self.run_jj(&[
-            "log", "-r", &revset, "--no-graph", "-T", r#"commit_id ++ "\n""#,
+            "log",
+            "-r",
+            &revset,
+            "--no-graph",
+            "-T",
+            r#"commit_id ++ "\n""#,
         ])?;
         Ok(output
             .lines()
@@ -185,7 +189,12 @@ impl Jj for JjRunner {
 
     fn is_conflicted(&self, revset: &str) -> Result<bool> {
         let output = self.run_jj(&[
-            "log", "-r", revset, "--no-graph", "-T", r#"if(conflict, "true", "false")"#,
+            "log",
+            "-r",
+            revset,
+            "--no-graph",
+            "-T",
+            r#"if(conflict, "true", "false")"#,
         ])?;
         Ok(output.trim() == "true")
     }

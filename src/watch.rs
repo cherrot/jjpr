@@ -4,21 +4,22 @@ use std::time::Instant;
 
 use anyhow::Result;
 
+use crate::config::StackNavigationMode;
 use crate::forge::types::{ChecksStatus, PullRequest, RepoInfo};
 use crate::forge::{Forge, ForgeKind};
 use crate::graph::change_graph;
-use crate::jj::types::NarrowedSegment;
 use crate::jj::Jj;
+use crate::jj::types::NarrowedSegment;
 use crate::merge::execute::{
-    format_block_reason, merge_with_retry, reconcile_after_merge, BlockedPr,
-    LocalDivergenceWarning, MergeResult, MergedPr, SkippedMergedPr,
+    BlockedPr, LocalDivergenceWarning, MergeResult, MergedPr, SkippedMergedPr, format_block_reason,
+    merge_with_retry, reconcile_after_merge,
 };
-use crate::merge::plan::{evaluate_segment, BlockReason, MergeOptions, PrMergeStatus};
+use crate::merge::plan::{BlockReason, MergeOptions, PrMergeStatus, evaluate_segment};
 use crate::merge::watch::{
-    interruptible_sleep, local_time_hhmm, refresh_pr_map, report_status_changes,
-    WatchOptions, HEARTBEAT_INTERVAL, MAX_CONSECUTIVE_ERRORS,
+    HEARTBEAT_INTERVAL, MAX_CONSECUTIVE_ERRORS, WatchOptions, interruptible_sleep, local_time_hhmm,
+    refresh_pr_map, report_status_changes,
 };
-use crate::submit::{analyze, plan, execute, resolve};
+use crate::submit::{analyze, execute, plan, resolve};
 
 #[derive(Debug)]
 pub struct CreatedPr {
@@ -77,10 +78,7 @@ fn promote_ready_drafts(
                 );
                 continue;
             }
-            println!(
-                "  Marked '{}' as ready (CI passing)",
-                seg.bookmark.name
-            );
+            println!("  Marked '{}' as ready (CI passing)", seg.bookmark.name);
             promoted.push(PromotedPr {
                 bookmark_name: seg.bookmark.name.clone(),
                 pr_number: pr.number,
@@ -99,7 +97,10 @@ fn reviewer_hint(
     fk: ForgeKind,
 ) -> Option<String> {
     let pr = pr?;
-    if !reasons.iter().any(|r| matches!(r, BlockReason::InsufficientApprovals { .. })) {
+    if !reasons
+        .iter()
+        .any(|r| matches!(r, BlockReason::InsufficientApprovals { .. }))
+    {
         return None;
     }
     if !pr.requested_reviewers.is_empty() {
@@ -176,7 +177,9 @@ fn run_merge_phase(
             Err(e) => {
                 *consecutive_errors += 1;
                 let now = local_time_hhmm();
-                eprintln!("  [{now}] Eval error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}");
+                eprintln!(
+                    "  [{now}] Eval error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                );
                 break;
             }
         };
@@ -260,7 +263,8 @@ fn run_merge_phase(
                 }
 
                 if prev_reasons.is_none()
-                    && let Some(hint) = reviewer_hint(pr.as_ref(), &reasons, &bookmark_name, forge_kind)
+                    && let Some(hint) =
+                        reviewer_hint(pr.as_ref(), &reasons, &bookmark_name, forge_kind)
                 {
                     println!("{hint}");
                 }
@@ -278,9 +282,7 @@ fn run_merge_phase(
                         .first()
                         .map(|r| format_block_reason(r, forge_kind))
                         .unwrap_or_default();
-                    println!(
-                        "  [{now}] Still waiting for {bookmark_name}: {first_reason}"
-                    );
+                    println!("  [{now}] Still waiting for {bookmark_name}: {first_reason}");
                     *last_heartbeat = Instant::now();
                 }
 
@@ -330,6 +332,7 @@ pub fn run_watch_loop(
     merge_options: &MergeOptions,
     target_bookmark: &str,
     stack_base: Option<&str>,
+    stack_navigation_mode: StackNavigationMode,
     opts: WatchOptions,
 ) -> Result<WatchResult> {
     let shutdown = opts.shutdown;
@@ -352,33 +355,46 @@ pub fn run_watch_loop(
     let deadline = timeout.map(|d| Instant::now() + d);
 
     let merge_plan = make_merge_plan(
-        repo_info, forge_kind, default_branch, remote_name, merge_options, stack_base,
+        repo_info,
+        forge_kind,
+        default_branch,
+        remote_name,
+        merge_options,
+        stack_base,
     );
 
     // Print initial status so the user knows what watch is working with
     if let Ok(initial_prs) = forge.list_open_prs(owner, repo) {
         let pr_map = crate::forge::build_pr_map(initial_prs, owner);
         let segments = rediscover_segments(jj, target_bookmark).unwrap_or_default();
-        let with_pr: Vec<_> = segments.iter()
+        let with_pr: Vec<_> = segments
+            .iter()
             .filter(|s| pr_map.contains_key(&s.bookmark.name))
             .collect();
-        let without_pr: Vec<_> = segments.iter()
+        let without_pr: Vec<_> = segments
+            .iter()
             .filter(|s| !pr_map.contains_key(&s.bookmark.name))
             .collect();
         if !with_pr.is_empty() || !without_pr.is_empty() {
-            println!("  {} bookmark{} in stack{}",
+            println!(
+                "  {} bookmark{} in stack{}",
                 segments.len(),
                 if segments.len() == 1 { "" } else { "s" },
                 if !with_pr.is_empty() {
-                    format!(", {} with existing PR{}",
+                    format!(
+                        ", {} with existing PR{}",
                         with_pr.len(),
-                        if with_pr.len() == 1 { "" } else { "s" })
+                        if with_pr.len() == 1 { "" } else { "s" }
+                    )
                 } else {
                     String::new()
                 },
             );
             if !without_pr.is_empty() {
-                let names: Vec<_> = without_pr.iter().map(|s| s.bookmark.name.as_str()).collect();
+                let names: Vec<_> = without_pr
+                    .iter()
+                    .map(|s| s.bookmark.name.as_str())
+                    .collect();
                 println!("  Will create draft PRs for: {}\n", names.join(", "));
             } else {
                 println!();
@@ -415,7 +431,9 @@ pub fn run_watch_loop(
             Err(e) => {
                 consecutive_errors += 1;
                 let now = local_time_hhmm();
-                eprintln!("  [{now}] Graph scan error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}");
+                eprintln!(
+                    "  [{now}] Graph scan error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                );
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                     eprintln!("  Too many consecutive errors \u{2014} giving up.");
                     break;
@@ -432,20 +450,27 @@ pub fn run_watch_loop(
         }
 
         // --- Phase 1b: Check for conflicts ---
-        let has_conflicts = segments.iter().any(|seg|
-            seg.changes.iter().any(|c| c.conflict)
-        );
+        let has_conflicts = segments
+            .iter()
+            .any(|seg| seg.changes.iter().any(|c| c.conflict));
         if has_conflicts {
             if prev_reasons.is_none() {
-                let conflicted: Vec<_> = segments.iter()
-                    .flat_map(|seg| seg.changes.iter().filter(|c| c.conflict)
-                        .map(|c| (seg.bookmark.name.as_str(), c.change_id.as_str())))
+                let conflicted: Vec<_> = segments
+                    .iter()
+                    .flat_map(|seg| {
+                        seg.changes
+                            .iter()
+                            .filter(|c| c.conflict)
+                            .map(|c| (seg.bookmark.name.as_str(), c.change_id.as_str()))
+                    })
                     .collect();
                 println!("\n  Waiting for conflict resolution:");
                 for (bookmark, change_id) in &conflicted {
                     println!("    - {change_id} ({bookmark})");
                 }
-                println!("    hint: jj edit <change_id>, fix the conflicts, then jjpr watch will continue");
+                println!(
+                    "    hint: jj edit <change_id>, fix the conflicts, then jjpr watch will continue"
+                );
             }
             if interruptible_sleep(poll_interval, &shutdown) {
                 break;
@@ -454,7 +479,17 @@ pub fn run_watch_loop(
         }
 
         // --- Phase 2: Submit (push + create draft PRs) ---
-        let bookmarks_being_created = match run_submit_phase(jj, forge, &segments, remote_name, repo_info, forge_kind, default_branch, stack_base) {
+        let bookmarks_being_created = match run_submit_phase(
+            jj,
+            forge,
+            &segments,
+            remote_name,
+            repo_info,
+            forge_kind,
+            default_branch,
+            stack_base,
+            stack_navigation_mode,
+        ) {
             Ok(names) => {
                 consecutive_errors = 0;
                 names
@@ -462,7 +497,9 @@ pub fn run_watch_loop(
             Err(e) => {
                 consecutive_errors += 1;
                 let now = local_time_hhmm();
-                eprintln!("  [{now}] Submit error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}");
+                eprintln!(
+                    "  [{now}] Submit error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                );
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                     break;
                 }
@@ -482,7 +519,9 @@ pub fn run_watch_loop(
             Err(e) => {
                 consecutive_errors += 1;
                 let now = local_time_hhmm();
-                eprintln!("  [{now}] PR refresh error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}");
+                eprintln!(
+                    "  [{now}] PR refresh error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {e}"
+                );
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                     break;
                 }
@@ -517,9 +556,18 @@ pub fn run_watch_loop(
 
         // --- Phase 5: Merge phase (bottom-up) ---
         let merge_outcome = run_merge_phase(
-            jj, forge, &segments, &pr_map, merge_options, &merge_plan,
-            forge_kind, &mut prev_reasons, &mut consecutive_errors,
-            &mut last_heartbeat, &mut local_degraded, &mut local_warnings,
+            jj,
+            forge,
+            &segments,
+            &pr_map,
+            merge_options,
+            &merge_plan,
+            forge_kind,
+            &mut prev_reasons,
+            &mut consecutive_errors,
+            &mut last_heartbeat,
+            &mut local_degraded,
+            &mut local_warnings,
         )?;
 
         merged.extend(merge_outcome.merged);
@@ -552,10 +600,7 @@ pub fn run_watch_loop(
 }
 
 /// Re-discover segments by rebuilding the change graph.
-fn rediscover_segments(
-    jj: &dyn Jj,
-    target_bookmark: &str,
-) -> Result<Vec<NarrowedSegment>> {
+fn rediscover_segments(jj: &dyn Jj, target_bookmark: &str) -> Result<Vec<NarrowedSegment>> {
     let graph = change_graph::build_change_graph(jj)?;
 
     // If the target bookmark no longer exists (fully merged), return empty
@@ -581,6 +626,7 @@ fn run_submit_phase(
     forge_kind: ForgeKind,
     default_branch: &str,
     stack_base: Option<&str>,
+    stack_navigation_mode: StackNavigationMode,
 ) -> Result<Vec<String>> {
     let submission_plan = plan::create_submission_plan(
         forge,
@@ -605,7 +651,14 @@ fn run_submit_phase(
         .map(|b| b.bookmark.name.clone())
         .collect();
 
-    execute::execute_submission_plan(jj, forge, &submission_plan, &[], false)?;
+    execute::execute_submission_plan(
+        jj,
+        forge,
+        &submission_plan,
+        &[],
+        false,
+        stack_navigation_mode,
+    )?;
 
     Ok(creating)
 }
@@ -706,32 +759,74 @@ mod tests {
             Ok(self.prs.values().cloned().collect())
         }
         fn get_pr_checks_status(&self, _o: &str, _r: &str, ref_name: &str) -> Result<ChecksStatus> {
-            self.checks.get(ref_name).cloned()
+            self.checks
+                .get(ref_name)
+                .cloned()
                 .ok_or_else(|| anyhow::anyhow!("no checks for {ref_name}"))
         }
         fn mark_pr_ready(&self, _o: &str, _r: &str, number: u64) -> Result<()> {
-            self.calls.lock().expect("poisoned")
+            self.calls
+                .lock()
+                .expect("poisoned")
                 .push(format!("mark_pr_ready:{number}"));
             Ok(())
         }
-        fn create_pr(&self, _o: &str, _r: &str, _t: &str, _b: &str, _h: &str, _ba: &str, _d: bool) -> Result<PullRequest> { unimplemented!() }
-        fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> { Ok(()) }
-        fn list_comments(&self, _o: &str, _r: &str, _n: u64) -> Result<Vec<IssueComment>> { Ok(vec![]) }
-        fn create_comment(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<IssueComment> { unimplemented!() }
-        fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> { Ok(()) }
-        fn get_authenticated_user(&self) -> Result<String> { Ok("user".to_string()) }
-        fn find_merged_pr(&self, _o: &str, _r: &str, _h: &str) -> Result<Option<PullRequest>> { Ok(None) }
-        fn merge_pr(&self, _o: &str, _r: &str, _n: u64, _m: MergeMethod) -> Result<()> { Ok(()) }
+        fn create_pr(
+            &self,
+            _o: &str,
+            _r: &str,
+            _t: &str,
+            _b: &str,
+            _h: &str,
+            _ba: &str,
+            _d: bool,
+        ) -> Result<PullRequest> {
+            unimplemented!()
+        }
+        fn update_pr_base(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn update_pr_body(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn request_reviewers(&self, _o: &str, _r: &str, _n: u64, _r2: &[String]) -> Result<()> {
+            Ok(())
+        }
+        fn list_comments(&self, _o: &str, _r: &str, _n: u64) -> Result<Vec<IssueComment>> {
+            Ok(vec![])
+        }
+        fn create_comment(&self, _o: &str, _r: &str, _n: u64, _b: &str) -> Result<IssueComment> {
+            unimplemented!()
+        }
+        fn update_comment(&self, _o: &str, _r: &str, _id: u64, _b: &str) -> Result<()> {
+            Ok(())
+        }
+        fn get_authenticated_user(&self) -> Result<String> {
+            Ok("user".to_string())
+        }
+        fn find_merged_pr(&self, _o: &str, _r: &str, _h: &str) -> Result<Option<PullRequest>> {
+            Ok(None)
+        }
+        fn merge_pr(&self, _o: &str, _r: &str, _n: u64, _m: MergeMethod) -> Result<()> {
+            Ok(())
+        }
         fn get_pr_reviews(&self, _o: &str, _r: &str, _n: u64) -> Result<ReviewSummary> {
-            Ok(ReviewSummary { approved_count: 0, changes_requested: false })
+            Ok(ReviewSummary {
+                approved_count: 0,
+                changes_requested: false,
+            })
         }
         fn get_pr_mergeability(&self, _o: &str, _r: &str, _n: u64) -> Result<PrMergeability> {
-            Ok(PrMergeability { mergeable: Some(true), mergeable_state: "clean".to_string() })
+            Ok(PrMergeability {
+                mergeable: Some(true),
+                mergeable_state: "clean".to_string(),
+            })
         }
         fn get_pr_state(&self, _o: &str, _r: &str, _n: u64) -> Result<PrState> {
-            Ok(PrState { merged: false, state: "open".to_string() })
+            Ok(PrState {
+                merged: false,
+                state: "open".to_string(),
+            })
         }
     }
 
@@ -758,7 +853,10 @@ mod tests {
 
         let hint = reviewer_hint(Some(&pr), &reasons, "auth", ForgeKind::GitHub);
 
-        assert!(hint.is_none(), "should not show hint when reviewers are present");
+        assert!(
+            hint.is_none(),
+            "should not show hint when reviewers are present"
+        );
     }
 
     #[test]
@@ -768,7 +866,10 @@ mod tests {
 
         let hint = reviewer_hint(Some(&pr), &reasons, "auth", ForgeKind::GitHub);
 
-        assert!(hint.is_none(), "should not show hint for non-approval blocks");
+        assert!(
+            hint.is_none(),
+            "should not show hint for non-approval blocks"
+        );
     }
 
     #[test]
@@ -784,12 +885,12 @@ mod tests {
 
     #[test]
     fn test_promote_draft_when_ci_passes() {
-        let forge = PromotionForge::new()
-            .with_pr(make_pr("auth", 1, true), ChecksStatus::Pass);
+        let forge = PromotionForge::new().with_pr(make_pr("auth", 1, true), ChecksStatus::Pass);
         let segments = vec![make_segment("auth")];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
         assert_eq!(promoted.len(), 1);
         assert_eq!(promoted[0].pr_number, 1);
@@ -798,12 +899,12 @@ mod tests {
 
     #[test]
     fn test_no_promote_when_ci_pending() {
-        let forge = PromotionForge::new()
-            .with_pr(make_pr("auth", 1, true), ChecksStatus::Pending);
+        let forge = PromotionForge::new().with_pr(make_pr("auth", 1, true), ChecksStatus::Pending);
         let segments = vec![make_segment("auth")];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
         assert!(promoted.is_empty());
         assert!(!forge.calls().iter().any(|c| c.starts_with("mark_pr_ready")));
@@ -811,38 +912,41 @@ mod tests {
 
     #[test]
     fn test_no_promote_when_ci_failing() {
-        let forge = PromotionForge::new()
-            .with_pr(make_pr("auth", 1, true), ChecksStatus::Fail);
+        let forge = PromotionForge::new().with_pr(make_pr("auth", 1, true), ChecksStatus::Fail);
         let segments = vec![make_segment("auth")];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
         assert!(promoted.is_empty());
     }
 
     #[test]
     fn test_no_promote_when_not_draft() {
-        let forge = PromotionForge::new()
-            .with_pr(make_pr("auth", 1, false), ChecksStatus::Pass);
+        let forge = PromotionForge::new().with_pr(make_pr("auth", 1, false), ChecksStatus::Pass);
         let segments = vec![make_segment("auth")];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
         assert!(promoted.is_empty());
     }
 
     #[test]
     fn test_no_promote_when_no_ci_checks() {
-        let forge = PromotionForge::new()
-            .with_pr(make_pr("auth", 1, true), ChecksStatus::None);
+        let forge = PromotionForge::new().with_pr(make_pr("auth", 1, true), ChecksStatus::None);
         let segments = vec![make_segment("auth")];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
-        assert!(promoted.is_empty(), "should not promote when no CI checks exist");
+        assert!(
+            promoted.is_empty(),
+            "should not promote when no CI checks exist"
+        );
     }
 
     #[test]
@@ -858,7 +962,8 @@ mod tests {
         ];
         let pr_map: HashMap<String, PullRequest> = forge.prs.clone();
 
-        let promoted = promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
+        let promoted =
+            promote_ready_drafts(&forge, &segments, &pr_map, &repo_info(), ForgeKind::GitHub);
 
         assert_eq!(promoted.len(), 3);
         let calls = forge.calls();
